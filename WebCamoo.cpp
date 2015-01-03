@@ -40,24 +40,10 @@ const LPCTSTR CLASSNAME = TEXT("VidCapPreviewer\0");
 const UINT WM_GRAPHNOTIFY = WM_APP+1;
 
 
-//  Macros
-//
-#define SAFE_RELEASE(x) { if (x) x->Release(); x = NULL; }
-
-
-// An application can advertise the existence of its filter graph
-// by registering the graph with a global Running Object Table (ROT).
-// The GraphEdit application can detect and remotely view the running
-// filter graph, allowing you to 'spy' on the graph with GraphEdit.
-//
-// To enable registration in this sample, define REGISTER_FILTERGRAPH.
-//
-#define REGISTER_FILTERGRAPH
-
-
-static void Msg(TCHAR *szFormat, ...)
+// Alert
+static void Alert(TCHAR *szFormat, ...)
 {
-    TCHAR szBuffer[1024];  // Large buffer for long filenames or URLs
+    TCHAR szBuffer[1024];  // Large buffer for long filenames or URLs.
     const size_t NUMCHARS = sizeof(szBuffer) / sizeof(szBuffer[0]);
     const int LASTCHAR = NUMCHARS - 1;
 
@@ -70,34 +56,43 @@ static void Msg(TCHAR *szFormat, ...)
     (void)StringCchVPrintf(szBuffer, NUMCHARS - 1, szFormat, pArgs);
     va_end(pArgs);
 
-    // Ensure that the formatted string is NULL-terminated
+    // Ensure that the formatted string is NULL-terminated.
     szBuffer[LASTCHAR] = TEXT('\0');
 
     MessageBox(NULL, szBuffer, TEXT("WebCamoo Message"), MB_OK | MB_ICONERROR);
 }
 
 
-#ifdef REGISTER_FILTERGRAPH
+// An application can advertise the existence of its filter graph
+// by registering the graph with a global Running Object Table (ROT).
+// The GraphEdit application can detect and remotely view the running
+// filter graph, allowing you to 'spy' on the graph with GraphEdit.
+//
+// To enable registration in this sample, define REGISTER_FILTERGRAPH 1.
+//
+#define REGISTER_FILTERGRAPH 1
 
-static HRESULT AddGraphToRot(IUnknown *pUnkGraph, DWORD *pdwRegister) 
+#if REGISTER_FILTERGRAPH
+
+// Adds a filter graph to the Running Object Table.
+static HRESULT AddGraphToRot(IUnknown* pUnkGraph, DWORD* pdwRegister) 
 {
-    IMoniker * pMoniker;
-    IRunningObjectTable *pROT;
+    IMoniker* pMoniker;
+    IRunningObjectTable* pROT;
     WCHAR wsz[128];
     HRESULT hr;
 
-    if (!pUnkGraph || !pdwRegister)
-        return E_POINTER;
+    if (!pUnkGraph || !pdwRegister) return E_POINTER;
 
-    if (FAILED(GetRunningObjectTable(0, &pROT)))
-        return E_FAIL;
+    if (FAILED(GetRunningObjectTable(0, &pROT))) return E_FAIL;
 
-    hr = StringCchPrintfW(wsz, NUMELMS(wsz), L"FilterGraph %08x pid %08x\0", (DWORD_PTR)pUnkGraph, 
-              GetCurrentProcessId());
+    hr = StringCchPrintfW(
+        wsz, NUMELMS(wsz),
+        L"FilterGraph %08x pid %08x\0", (DWORD_PTR)pUnkGraph, 
+        GetCurrentProcessId());
 
     hr = CreateItemMoniker(L"!", wsz, &pMoniker);
-    if (SUCCEEDED(hr)) 
-    {
+    if (SUCCEEDED(hr)) {
         // Use the ROTFLAGS_REGISTRATIONKEEPSALIVE to ensure a strong reference
         // to the object.  Using this flag will cause the object to remain
         // registered until it is explicitly revoked with the Revoke() method.
@@ -106,8 +101,9 @@ static HRESULT AddGraphToRot(IUnknown *pUnkGraph, DWORD *pdwRegister)
         // to this graph and then GraphEdit exits, this object registration 
         // will be deleted, causing future attempts by GraphEdit to fail until
         // this application is restarted or until the graph is registered again.
-        hr = pROT->Register(ROTFLAGS_REGISTRATIONKEEPSALIVE, pUnkGraph, 
-                            pMoniker, pdwRegister);
+        hr = pROT->Register(
+            ROTFLAGS_REGISTRATIONKEEPSALIVE, pUnkGraph, 
+            pMoniker, pdwRegister);
         pMoniker->Release();
     }
 
@@ -115,14 +111,12 @@ static HRESULT AddGraphToRot(IUnknown *pUnkGraph, DWORD *pdwRegister)
     return hr;
 }
 
-
-// Removes a filter graph from the Running Object Table
+// Removes a filter graph from the Running Object Table.
 static void RemoveGraphFromRot(DWORD pdwRegister)
 {
-    IRunningObjectTable *pROT;
+    IRunningObjectTable* pROT;
 
-    if (SUCCEEDED(GetRunningObjectTable(0, &pROT))) 
-    {
+    if (SUCCEEDED(GetRunningObjectTable(0, &pROT))) {
         pROT->Revoke(pdwRegister);
         pROT->Release();
     }
@@ -130,8 +124,8 @@ static void RemoveGraphFromRot(DWORD pdwRegister)
 
 #endif
 
-
-static HRESULT FindCaptureDevice(IBaseFilter** ppSrcFilter)
+// FindCaptureDevice
+static HRESULT FindCaptureDevice(CLSID category, IBaseFilter** ppSrcFilter)
 {
     HRESULT hr;
     IBaseFilter* pSrc = NULL;
@@ -149,7 +143,7 @@ static HRESULT FindCaptureDevice(IBaseFilter** ppSrcFilter)
 
     // Create an enumerator for the video capture devices.
     hr = pDevEnum->CreateClassEnumerator(
-        CLSID_VideoInputDeviceCategory, &pClassEnum, 0);
+        category, &pClassEnum, 0);
     if (FAILED(hr)) goto fail;
     if (pClassEnum == NULL) {
         // If there are no enumerators for the requested type, then 
@@ -297,7 +291,7 @@ void WebCamoo::Uninitialize(void)
         g_pVW = NULL;
     }
 
-#ifdef REGISTER_FILTERGRAPH
+#if REGISTER_FILTERGRAPH
     // Remove filter graph from the running object table   
     if (g_dwGraphRegister) {
         RemoveGraphFromRot(g_dwGraphRegister);
@@ -319,39 +313,74 @@ void WebCamoo::Uninitialize(void)
 HRESULT WebCamoo::SetupVideo(HWND hWnd)
 {
     HRESULT hr;
-    IBaseFilter* pSrcFilter = NULL;
 
     // Attach the filter graph to the capture graph.
     hr = g_pCapture->SetFiltergraph(g_pGraph);
     if (FAILED(hr)) return hr;
 
-    // Use the system device enumerator and class enumerator to find
-    // a video capture/preview device, such as a desktop USB video camera.
-    hr = FindCaptureDevice(&pSrcFilter);
-    if (FAILED(hr)) return hr;
+    // Add a video filter.
+    {
+        IBaseFilter* pSrcFilter = NULL;
+        
+        // Use the system device enumerator and class enumerator to find
+        // a video capture/preview device, such as a desktop USB video camera.
+        hr = FindCaptureDevice(CLSID_VideoInputDeviceCategory, &pSrcFilter);
+        if (FAILED(hr)) return hr;
    
-    // Add Capture filter to our graph.
-    hr = g_pGraph->AddFilter(pSrcFilter, L"Video Capture");
-    if (FAILED(hr)) {
+        // Add Capture filter to our graph.
+        hr = g_pGraph->AddFilter(pSrcFilter, L"Video Capture");
+        if (FAILED(hr)) {
+            pSrcFilter->Release();
+            return hr;
+        }
+
+        // Render the preview pin on the video capture filter.
+        // Use this instead of g_pGraph->RenderFile.
+        hr = g_pCapture->RenderStream(
+            &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Video,
+            pSrcFilter, NULL, NULL);
+        if (FAILED(hr)) {
+            pSrcFilter->Release();
+            return hr;
+        }
+
+        // Now that the filter has been added to the graph and we have
+        // rendered its stream, we can release this reference to the filter.
         pSrcFilter->Release();
-        return hr;
     }
 
-    // Render the preview pin on the video capture filter.
-    // Use this instead of g_pGraph->RenderFile.
-    hr = g_pCapture->RenderStream(
-        &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Video,
-        pSrcFilter, NULL, NULL);
-    if (FAILED(hr)) {
+    // Add an audio filter.
+    if (0) {
+        IBaseFilter* pSrcFilter = NULL;
+        
+        // Use the system device enumerator and class enumerator to find
+        // a video capture/preview device, such as a desktop USB video camera.
+        hr = FindCaptureDevice(CLSID_AudioInputDeviceCategory, &pSrcFilter);
+        if (FAILED(hr)) return hr;
+   
+        // Add Capture filter to our graph.
+        hr = g_pGraph->AddFilter(pSrcFilter, L"Audio Capture");
+        if (FAILED(hr)) {
+            pSrcFilter->Release();
+            return hr;
+        }
+
+        // Render the preview pin on the audio capture filter.
+        // Use this instead of g_pGraph->RenderFile.
+        hr = g_pCapture->RenderStream(
+            &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Audio,
+            pSrcFilter, NULL, NULL);
+        if (FAILED(hr)) {
+            pSrcFilter->Release();
+            return hr;
+        }
+
+        // Now that the filter has been added to the graph and we have
+        // rendered its stream, we can release this reference to the filter.
         pSrcFilter->Release();
-        return hr;
     }
 
-    // Now that the filter has been added to the graph and we have
-    // rendered its stream, we can release this reference to the filter.
-    pSrcFilter->Release();
-
-#ifdef REGISTER_FILTERGRAPH
+#if REGISTER_FILTERGRAPH
     // Add our graph to the running object table, which will allow
     // the GraphEdit application to "spy" on our graph.
     hr = AddGraphToRot(g_pGraph, &g_dwGraphRegister);
