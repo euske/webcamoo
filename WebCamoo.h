@@ -14,16 +14,3 @@
 
 
 enum PLAYSTATE {Stopped, Paused, Running, Init};
-
-//
-// Constants
-//
-#define DEFAULT_VIDEO_WIDTH     320
-#define DEFAULT_VIDEO_HEIGHT    320
-
-#define APPLICATIONNAME TEXT("Video Capture Previewer (WebCamoo)\0")
-#define CLASSNAME       TEXT("VidCapPreviewer\0")
-
-// Application-defined message to notify app of filtergraph events
-#define WM_GRAPHNOTIFY  WM_APP+1
-
