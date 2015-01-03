@@ -28,6 +28,12 @@
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "strmiids.lib")
 
+//
+// Macros
+//
+#define SAFE_RELEASE(x) { if (x) x->Release(); x = NULL; }
+
+
 // An application can advertise the existence of its filter graph
 // by registering the graph with a global Running Object Table (ROT).
 // The GraphEdit application can detect and remotely view the running
@@ -52,7 +58,285 @@ ICaptureGraphBuilder2 * g_pCapture = NULL;
 PLAYSTATE g_psCurrent = Stopped;
 
 
-HRESULT CaptureVideo()
+
+static void Msg(TCHAR *szFormat, ...)
+{
+    TCHAR szBuffer[1024];  // Large buffer for long filenames or URLs
+    const size_t NUMCHARS = sizeof(szBuffer) / sizeof(szBuffer[0]);
+    const int LASTCHAR = NUMCHARS - 1;
+
+    // Format the input string
+    va_list pArgs;
+    va_start(pArgs, szFormat);
+
+    // Use a bounded buffer size to prevent buffer overruns.  Limit count to
+    // character size minus one to allow for a NULL terminating character.
+    (void)StringCchVPrintf(szBuffer, NUMCHARS - 1, szFormat, pArgs);
+    va_end(pArgs);
+
+    // Ensure that the formatted string is NULL-terminated
+    szBuffer[LASTCHAR] = TEXT('\0');
+
+    MessageBox(NULL, szBuffer, TEXT("WebCamoo Message"), MB_OK | MB_ICONERROR);
+}
+
+
+#ifdef REGISTER_FILTERGRAPH
+
+static HRESULT AddGraphToRot(IUnknown *pUnkGraph, DWORD *pdwRegister) 
+{
+    IMoniker * pMoniker;
+    IRunningObjectTable *pROT;
+    WCHAR wsz[128];
+    HRESULT hr;
+
+    if (!pUnkGraph || !pdwRegister)
+        return E_POINTER;
+
+    if (FAILED(GetRunningObjectTable(0, &pROT)))
+        return E_FAIL;
+
+    hr = StringCchPrintfW(wsz, NUMELMS(wsz), L"FilterGraph %08x pid %08x\0", (DWORD_PTR)pUnkGraph, 
+              GetCurrentProcessId());
+
+    hr = CreateItemMoniker(L"!", wsz, &pMoniker);
+    if (SUCCEEDED(hr)) 
+    {
+        // Use the ROTFLAGS_REGISTRATIONKEEPSALIVE to ensure a strong reference
+        // to the object.  Using this flag will cause the object to remain
+        // registered until it is explicitly revoked with the Revoke() method.
+        //
+        // Not using this flag means that if GraphEdit remotely connects
+        // to this graph and then GraphEdit exits, this object registration 
+        // will be deleted, causing future attempts by GraphEdit to fail until
+        // this application is restarted or until the graph is registered again.
+        hr = pROT->Register(ROTFLAGS_REGISTRATIONKEEPSALIVE, pUnkGraph, 
+                            pMoniker, pdwRegister);
+        pMoniker->Release();
+    }
+
+    pROT->Release();
+    return hr;
+}
+
+
+// Removes a filter graph from the Running Object Table
+static void RemoveGraphFromRot(DWORD pdwRegister)
+{
+    IRunningObjectTable *pROT;
+
+    if (SUCCEEDED(GetRunningObjectTable(0, &pROT))) 
+    {
+        pROT->Revoke(pdwRegister);
+        pROT->Release();
+    }
+}
+
+#endif
+
+
+static HRESULT GetInterfaces(void)
+{
+    HRESULT hr;
+
+    // Create the filter graph
+    hr = CoCreateInstance (CLSID_FilterGraph, NULL, CLSCTX_INPROC,
+                           IID_IGraphBuilder, (void **) &g_pGraph);
+    if (FAILED(hr))
+        return hr;
+
+    // Create the capture graph builder
+    hr = CoCreateInstance (CLSID_CaptureGraphBuilder2 , NULL, CLSCTX_INPROC,
+                           IID_ICaptureGraphBuilder2, (void **) &g_pCapture);
+    if (FAILED(hr))
+        return hr;
+    
+    // Obtain interfaces for media control and Video Window
+    hr = g_pGraph->QueryInterface(IID_IMediaControl,(LPVOID *) &g_pMC);
+    if (FAILED(hr))
+        return hr;
+
+    hr = g_pGraph->QueryInterface(IID_IVideoWindow, (LPVOID *) &g_pVW);
+    if (FAILED(hr))
+        return hr;
+
+    hr = g_pGraph->QueryInterface(IID_IMediaEventEx, (LPVOID *) &g_pME);
+    if (FAILED(hr))
+        return hr;
+
+    // Set the window handle used to process graph events
+    hr = g_pME->SetNotifyWindow((OAHWND)ghApp, WM_GRAPHNOTIFY, 0);
+
+    return hr;
+}
+
+
+static void CloseInterfaces(void)
+{
+    // Stop previewing data
+    if (g_pMC)
+        g_pMC->StopWhenReady();
+
+    g_psCurrent = Stopped;
+
+    // Stop receiving events
+    if (g_pME)
+        g_pME->SetNotifyWindow(NULL, WM_GRAPHNOTIFY, 0);
+
+    // Relinquish ownership (IMPORTANT!) of the video window.
+    // Failing to call put_Owner can lead to assert failures within
+    // the video renderer, as it still assumes that it has a valid
+    // parent window.
+    if(g_pVW)
+    {
+        g_pVW->put_Visible(OAFALSE);
+        g_pVW->put_Owner(NULL);
+    }
+
+#ifdef REGISTER_FILTERGRAPH
+    // Remove filter graph from the running object table   
+    if (g_dwGraphRegister)
+        RemoveGraphFromRot(g_dwGraphRegister);
+#endif
+
+    // Release DirectShow interfaces
+    SAFE_RELEASE(g_pMC);
+    SAFE_RELEASE(g_pME);
+    SAFE_RELEASE(g_pVW);
+    SAFE_RELEASE(g_pGraph);
+    SAFE_RELEASE(g_pCapture);
+}
+
+
+static void ResizeVideoWindow(void)
+{
+    // Resize the video preview window to match owner window size
+    if (g_pVW)
+    {
+        RECT rc;
+        
+        // Make the preview video fill our window
+        GetClientRect(ghApp, &rc);
+        g_pVW->SetWindowPosition(0, 0, rc.right, rc.bottom);
+    }
+}
+
+
+static HRESULT SetupVideoWindow(void)
+{
+    HRESULT hr;
+
+    // Set the video window to be a child of the main window
+    hr = g_pVW->put_Owner((OAHWND)ghApp);
+    if (FAILED(hr))
+        return hr;
+    
+    // Set video window style
+    hr = g_pVW->put_WindowStyle(WS_CHILD | WS_CLIPCHILDREN);
+    if (FAILED(hr))
+        return hr;
+
+    // Use helper function to position video window in client rect 
+    // of main application window
+    ResizeVideoWindow();
+
+    // Make the video window visible, now that it is properly positioned
+    hr = g_pVW->put_Visible(OATRUE);
+    if (FAILED(hr))
+        return hr;
+
+    return hr;
+}
+
+
+static HRESULT FindCaptureDevice(IBaseFilter ** ppSrcFilter)
+{
+    HRESULT hr = S_OK;
+    IBaseFilter * pSrc = NULL;
+    IMoniker* pMoniker =NULL;
+    ICreateDevEnum *pDevEnum =NULL;
+    IEnumMoniker *pClassEnum = NULL;
+
+    if (!ppSrcFilter)
+	{
+        return E_POINTER;
+	}
+   
+    // Create the system device enumerator
+    hr = CoCreateInstance (CLSID_SystemDeviceEnum, NULL, CLSCTX_INPROC,
+                           IID_ICreateDevEnum, (void **) &pDevEnum);
+    if (FAILED(hr))
+    {
+        Msg(TEXT("Couldn't create system enumerator!  hr=0x%x"), hr);
+    }
+
+    // Create an enumerator for the video capture devices
+
+	if (SUCCEEDED(hr))
+	{
+	    hr = pDevEnum->CreateClassEnumerator (CLSID_VideoInputDeviceCategory, &pClassEnum, 0);
+		if (FAILED(hr))
+		{
+			Msg(TEXT("Couldn't create class enumerator!  hr=0x%x"), hr);
+	    }
+	}
+
+	if (SUCCEEDED(hr))
+	{
+		// If there are no enumerators for the requested type, then 
+		// CreateClassEnumerator will succeed, but pClassEnum will be NULL.
+		if (pClassEnum == NULL)
+		{
+			MessageBox(ghApp,TEXT("No video capture device was detected.\r\n\r\n")
+				TEXT("This sample requires a video capture device, such as a USB WebCam,\r\n")
+				TEXT("to be installed and working properly.  The sample will now close."),
+				TEXT("No Video Capture Hardware"), MB_OK | MB_ICONINFORMATION);
+			hr = E_FAIL;
+		}
+	}
+
+    // Use the first video capture device on the device list.
+    // Note that if the Next() call succeeds but there are no monikers,
+    // it will return S_FALSE (which is not a failure).  Therefore, we
+    // check that the return code is S_OK instead of using SUCCEEDED() macro.
+
+	if (SUCCEEDED(hr))
+	{
+		hr = pClassEnum->Next (1, &pMoniker, NULL);
+		if (hr == S_FALSE)
+		{
+	        Msg(TEXT("Unable to access video capture device!"));   
+			hr = E_FAIL;
+		}
+	}
+
+	if (SUCCEEDED(hr))
+    {
+        // Bind Moniker to a filter object
+        hr = pMoniker->BindToObject(0,0,IID_IBaseFilter, (void**)&pSrc);
+        if (FAILED(hr))
+        {
+            Msg(TEXT("Couldn't bind moniker to filter object!  hr=0x%x"), hr);
+        }
+    }
+
+    // Copy the found filter pointer to the output parameter.
+	if (SUCCEEDED(hr))
+	{
+	    *ppSrcFilter = pSrc;
+		(*ppSrcFilter)->AddRef();
+	}
+
+	SAFE_RELEASE(pSrc);
+    SAFE_RELEASE(pMoniker);
+    SAFE_RELEASE(pDevEnum);
+    SAFE_RELEASE(pClassEnum);
+
+    return hr;
+}
+
+
+static HRESULT CaptureVideo()
 {
     HRESULT hr;
     IBaseFilter *pSrcFilter=NULL;
@@ -145,208 +429,7 @@ HRESULT CaptureVideo()
 }
 
 
-HRESULT FindCaptureDevice(IBaseFilter ** ppSrcFilter)
-{
-    HRESULT hr = S_OK;
-    IBaseFilter * pSrc = NULL;
-    IMoniker* pMoniker =NULL;
-    ICreateDevEnum *pDevEnum =NULL;
-    IEnumMoniker *pClassEnum = NULL;
-
-    if (!ppSrcFilter)
-	{
-        return E_POINTER;
-	}
-   
-    // Create the system device enumerator
-    hr = CoCreateInstance (CLSID_SystemDeviceEnum, NULL, CLSCTX_INPROC,
-                           IID_ICreateDevEnum, (void **) &pDevEnum);
-    if (FAILED(hr))
-    {
-        Msg(TEXT("Couldn't create system enumerator!  hr=0x%x"), hr);
-    }
-
-    // Create an enumerator for the video capture devices
-
-	if (SUCCEEDED(hr))
-	{
-	    hr = pDevEnum->CreateClassEnumerator (CLSID_VideoInputDeviceCategory, &pClassEnum, 0);
-		if (FAILED(hr))
-		{
-			Msg(TEXT("Couldn't create class enumerator!  hr=0x%x"), hr);
-	    }
-	}
-
-	if (SUCCEEDED(hr))
-	{
-		// If there are no enumerators for the requested type, then 
-		// CreateClassEnumerator will succeed, but pClassEnum will be NULL.
-		if (pClassEnum == NULL)
-		{
-			MessageBox(ghApp,TEXT("No video capture device was detected.\r\n\r\n")
-				TEXT("This sample requires a video capture device, such as a USB WebCam,\r\n")
-				TEXT("to be installed and working properly.  The sample will now close."),
-				TEXT("No Video Capture Hardware"), MB_OK | MB_ICONINFORMATION);
-			hr = E_FAIL;
-		}
-	}
-
-    // Use the first video capture device on the device list.
-    // Note that if the Next() call succeeds but there are no monikers,
-    // it will return S_FALSE (which is not a failure).  Therefore, we
-    // check that the return code is S_OK instead of using SUCCEEDED() macro.
-
-	if (SUCCEEDED(hr))
-	{
-		hr = pClassEnum->Next (1, &pMoniker, NULL);
-		if (hr == S_FALSE)
-		{
-	        Msg(TEXT("Unable to access video capture device!"));   
-			hr = E_FAIL;
-		}
-	}
-
-	if (SUCCEEDED(hr))
-    {
-        // Bind Moniker to a filter object
-        hr = pMoniker->BindToObject(0,0,IID_IBaseFilter, (void**)&pSrc);
-        if (FAILED(hr))
-        {
-            Msg(TEXT("Couldn't bind moniker to filter object!  hr=0x%x"), hr);
-        }
-    }
-
-    // Copy the found filter pointer to the output parameter.
-	if (SUCCEEDED(hr))
-	{
-	    *ppSrcFilter = pSrc;
-		(*ppSrcFilter)->AddRef();
-	}
-
-	SAFE_RELEASE(pSrc);
-    SAFE_RELEASE(pMoniker);
-    SAFE_RELEASE(pDevEnum);
-    SAFE_RELEASE(pClassEnum);
-
-    return hr;
-}
-
-
-HRESULT GetInterfaces(void)
-{
-    HRESULT hr;
-
-    // Create the filter graph
-    hr = CoCreateInstance (CLSID_FilterGraph, NULL, CLSCTX_INPROC,
-                           IID_IGraphBuilder, (void **) &g_pGraph);
-    if (FAILED(hr))
-        return hr;
-
-    // Create the capture graph builder
-    hr = CoCreateInstance (CLSID_CaptureGraphBuilder2 , NULL, CLSCTX_INPROC,
-                           IID_ICaptureGraphBuilder2, (void **) &g_pCapture);
-    if (FAILED(hr))
-        return hr;
-    
-    // Obtain interfaces for media control and Video Window
-    hr = g_pGraph->QueryInterface(IID_IMediaControl,(LPVOID *) &g_pMC);
-    if (FAILED(hr))
-        return hr;
-
-    hr = g_pGraph->QueryInterface(IID_IVideoWindow, (LPVOID *) &g_pVW);
-    if (FAILED(hr))
-        return hr;
-
-    hr = g_pGraph->QueryInterface(IID_IMediaEventEx, (LPVOID *) &g_pME);
-    if (FAILED(hr))
-        return hr;
-
-    // Set the window handle used to process graph events
-    hr = g_pME->SetNotifyWindow((OAHWND)ghApp, WM_GRAPHNOTIFY, 0);
-
-    return hr;
-}
-
-
-void CloseInterfaces(void)
-{
-    // Stop previewing data
-    if (g_pMC)
-        g_pMC->StopWhenReady();
-
-    g_psCurrent = Stopped;
-
-    // Stop receiving events
-    if (g_pME)
-        g_pME->SetNotifyWindow(NULL, WM_GRAPHNOTIFY, 0);
-
-    // Relinquish ownership (IMPORTANT!) of the video window.
-    // Failing to call put_Owner can lead to assert failures within
-    // the video renderer, as it still assumes that it has a valid
-    // parent window.
-    if(g_pVW)
-    {
-        g_pVW->put_Visible(OAFALSE);
-        g_pVW->put_Owner(NULL);
-    }
-
-#ifdef REGISTER_FILTERGRAPH
-    // Remove filter graph from the running object table   
-    if (g_dwGraphRegister)
-        RemoveGraphFromRot(g_dwGraphRegister);
-#endif
-
-    // Release DirectShow interfaces
-    SAFE_RELEASE(g_pMC);
-    SAFE_RELEASE(g_pME);
-    SAFE_RELEASE(g_pVW);
-    SAFE_RELEASE(g_pGraph);
-    SAFE_RELEASE(g_pCapture);
-}
-
-
-HRESULT SetupVideoWindow(void)
-{
-    HRESULT hr;
-
-    // Set the video window to be a child of the main window
-    hr = g_pVW->put_Owner((OAHWND)ghApp);
-    if (FAILED(hr))
-        return hr;
-    
-    // Set video window style
-    hr = g_pVW->put_WindowStyle(WS_CHILD | WS_CLIPCHILDREN);
-    if (FAILED(hr))
-        return hr;
-
-    // Use helper function to position video window in client rect 
-    // of main application window
-    ResizeVideoWindow();
-
-    // Make the video window visible, now that it is properly positioned
-    hr = g_pVW->put_Visible(OATRUE);
-    if (FAILED(hr))
-        return hr;
-
-    return hr;
-}
-
-
-void ResizeVideoWindow(void)
-{
-    // Resize the video preview window to match owner window size
-    if (g_pVW)
-    {
-        RECT rc;
-        
-        // Make the preview video fill our window
-        GetClientRect(ghApp, &rc);
-        g_pVW->SetWindowPosition(0, 0, rc.right, rc.bottom);
-    }
-}
-
-
-HRESULT ChangePreviewState(int nShow)
+static HRESULT ChangePreviewState(int nShow)
 {
     HRESULT hr=S_OK;
     
@@ -374,83 +457,8 @@ HRESULT ChangePreviewState(int nShow)
 }
 
 
-#ifdef REGISTER_FILTERGRAPH
 
-HRESULT AddGraphToRot(IUnknown *pUnkGraph, DWORD *pdwRegister) 
-{
-    IMoniker * pMoniker;
-    IRunningObjectTable *pROT;
-    WCHAR wsz[128];
-    HRESULT hr;
-
-    if (!pUnkGraph || !pdwRegister)
-        return E_POINTER;
-
-    if (FAILED(GetRunningObjectTable(0, &pROT)))
-        return E_FAIL;
-
-    hr = StringCchPrintfW(wsz, NUMELMS(wsz), L"FilterGraph %08x pid %08x\0", (DWORD_PTR)pUnkGraph, 
-              GetCurrentProcessId());
-
-    hr = CreateItemMoniker(L"!", wsz, &pMoniker);
-    if (SUCCEEDED(hr)) 
-    {
-        // Use the ROTFLAGS_REGISTRATIONKEEPSALIVE to ensure a strong reference
-        // to the object.  Using this flag will cause the object to remain
-        // registered until it is explicitly revoked with the Revoke() method.
-        //
-        // Not using this flag means that if GraphEdit remotely connects
-        // to this graph and then GraphEdit exits, this object registration 
-        // will be deleted, causing future attempts by GraphEdit to fail until
-        // this application is restarted or until the graph is registered again.
-        hr = pROT->Register(ROTFLAGS_REGISTRATIONKEEPSALIVE, pUnkGraph, 
-                            pMoniker, pdwRegister);
-        pMoniker->Release();
-    }
-
-    pROT->Release();
-    return hr;
-}
-
-
-// Removes a filter graph from the Running Object Table
-void RemoveGraphFromRot(DWORD pdwRegister)
-{
-    IRunningObjectTable *pROT;
-
-    if (SUCCEEDED(GetRunningObjectTable(0, &pROT))) 
-    {
-        pROT->Revoke(pdwRegister);
-        pROT->Release();
-    }
-}
-
-#endif
-
-
-void Msg(TCHAR *szFormat, ...)
-{
-    TCHAR szBuffer[1024];  // Large buffer for long filenames or URLs
-    const size_t NUMCHARS = sizeof(szBuffer) / sizeof(szBuffer[0]);
-    const int LASTCHAR = NUMCHARS - 1;
-
-    // Format the input string
-    va_list pArgs;
-    va_start(pArgs, szFormat);
-
-    // Use a bounded buffer size to prevent buffer overruns.  Limit count to
-    // character size minus one to allow for a NULL terminating character.
-    (void)StringCchVPrintf(szBuffer, NUMCHARS - 1, szFormat, pArgs);
-    va_end(pArgs);
-
-    // Ensure that the formatted string is NULL-terminated
-    szBuffer[LASTCHAR] = TEXT('\0');
-
-    MessageBox(NULL, szBuffer, TEXT("WebCamoo Message"), MB_OK | MB_ICONERROR);
-}
-
-
-HRESULT HandleGraphEvent(void)
+static HRESULT HandleGraphEvent(void)
 {
     LONG evCode;
 	LONG_PTR evParam1, evParam2;
@@ -475,7 +483,7 @@ HRESULT HandleGraphEvent(void)
 }
 
 
-LRESULT CALLBACK WndMainProc (HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+static LRESULT CALLBACK WndMainProc (HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {

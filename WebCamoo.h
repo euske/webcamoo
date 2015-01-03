@@ -13,36 +13,7 @@
 //------------------------------------------------------------------------------
 
 
-//
-// Function prototypes
-//
-int PASCAL WinMain(HINSTANCE hInstance, HINSTANCE hInstP, LPSTR lpCmdLine, int nCmdShow);
-LRESULT CALLBACK WndMainProc (HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
-
-HRESULT GetInterfaces(void);
-HRESULT CaptureVideo();
-HRESULT FindCaptureDevice(IBaseFilter ** ppSrcFilter);
-HRESULT SetupVideoWindow(void);
-HRESULT ChangePreviewState(int nShow);
-HRESULT HandleGraphEvent(void);
-
-void Msg(TCHAR *szFormat, ...);
-void CloseInterfaces(void);
-void ResizeVideoWindow(void);
-
-// Remote graph viewing functions
-HRESULT AddGraphToRot(IUnknown *pUnkGraph, DWORD *pdwRegister);
-void RemoveGraphFromRot(DWORD pdwRegister);
-
 enum PLAYSTATE {Stopped, Paused, Running, Init};
-
-//
-// Macros
-//
-#define SAFE_RELEASE(x) { if (x) x->Release(); x = NULL; }
-
-#define JIF(x) if (FAILED(hr=(x))) \
-    {Msg(TEXT("FAILED(hr=0x%x) in ") TEXT(#x) TEXT("\n\0"), hr); return hr;}
 
 //
 // Constants
