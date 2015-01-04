@@ -14,3 +14,6 @@
 
 
 enum PLAYSTATE {Stopped, Paused, Running, Init};
+
+#define IDM_MENU 101
+#define IDM_EXIT 1001

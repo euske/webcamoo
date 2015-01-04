@@ -19,6 +19,7 @@
 #include <dshow.h>
 #include <stdio.h>
 #include <strsafe.h>
+#include <stdexcept>
 
 #include "WebCamoo.h"
 
@@ -125,13 +126,14 @@ static void RemoveGraphFromRot(DWORD pdwRegister)
 #endif
 
 // FindCaptureDevice
-static HRESULT FindCaptureDevice(CLSID category, IBaseFilter** ppSrcFilter)
+static HRESULT FindCaptureDevice(
+    CLSID category, IBaseFilter** ppSrcFilter)
 {
     HRESULT hr;
     IBaseFilter* pSrc = NULL;
     IMoniker* pMoniker = NULL;
-    ICreateDevEnum* pDevEnum = NULL;
     IEnumMoniker* pClassEnum = NULL;
+    ICreateDevEnum* pDevEnum = NULL;
 
     if (!ppSrcFilter) return E_POINTER;
     
@@ -194,236 +196,190 @@ fail:
 
 class WebCamoo
 {
-    DWORD g_dwGraphRegister;
-    IVideoWindow* g_pVW;
-    IMediaControl* g_pMC;
-    IMediaEventEx* g_pME;
-    IGraphBuilder* g_pGraph;
-    ICaptureGraphBuilder2* g_pCapture;
-    PLAYSTATE g_psCurrent;
+    IGraphBuilder* _pGraph;
+    ICaptureGraphBuilder2* _pCapture;
+    DWORD _dwGraphRegister;
 
-    HRESULT SetupVideo(HWND hWnd);
+    IVideoWindow* _pVW;
+    IMediaControl* _pMC;
+    IMediaEventEx* _pME;
+    PLAYSTATE _psCurrent;
+
     void ResizeVideoWindow(HWND hWnd);
-    HRESULT SetupVideoWindow(HWND hWnd);
     HRESULT ChangePreviewState(int nShow);
     HRESULT HandleGraphEvent(void);
 
 public:
-    WebCamoo() :
-        g_dwGraphRegister(0),
-        g_pVW(NULL),
-        g_pMC(NULL),
-        g_pME(NULL),
-        g_pGraph(NULL),
-        g_pCapture(NULL),
-        g_psCurrent(Stopped) {
-    }
+    WebCamoo();
+    ~WebCamoo();
 
     HRESULT Initialize(HWND hWnd);
     void Uninitialize(void);
     void HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+    HRESULT AttachVideo();
+    HRESULT AttachAudio();
 };
+
+WebCamoo::WebCamoo()
+{
+    HRESULT hr;
+
+    _pGraph = NULL;
+    _pCapture = NULL;
+    _dwGraphRegister = 0;
+    
+    _pVW = NULL;
+    _pMC = NULL;
+    _pME = NULL;
+    _psCurrent = Stopped;
+
+    // Create the filter graph.
+    hr = CoCreateInstance(
+        CLSID_FilterGraph, NULL, CLSCTX_INPROC,
+        IID_IGraphBuilder, (void**)&_pGraph);
+    if (FAILED(hr)) throw std::exception("Unable to initialize a FilterGraph.");
+
+    // Create the capture graph builder.
+    hr = CoCreateInstance(
+        CLSID_CaptureGraphBuilder2, NULL, CLSCTX_INPROC,
+        IID_ICaptureGraphBuilder2, (void**)&_pCapture);
+    if (FAILED(hr)) throw std::exception("Unable to initialize a GraphBuilder.");
+
+    // Attach the filter graph to the capture graph.
+    hr = _pCapture->SetFiltergraph(_pGraph);
+    if (FAILED(hr)) throw std::exception("Unable to attach the Graph to the Builder.");
+
+#if REGISTER_FILTERGRAPH
+    // Add our graph to the running object table, which will allow
+    // the GraphEdit application to "spy" on our graph.
+    hr = AddGraphToRot(_pGraph, &_dwGraphRegister);
+    if (FAILED(hr)) {
+        _dwGraphRegister = 0;
+    }
+#endif    
+}
+
+WebCamoo::~WebCamoo()
+{
+#if REGISTER_FILTERGRAPH
+    // Remove filter graph from the running object table   
+    if (_dwGraphRegister) {
+        RemoveGraphFromRot(_dwGraphRegister);
+        _dwGraphRegister = 0;
+    }
+#endif
+
+    // Release DirectShow interfaces.
+    if (_pGraph != NULL) {
+        _pGraph->Release();
+        _pGraph = NULL;
+    }
+    if (_pCapture != NULL) {
+        _pCapture->Release();
+        _pCapture = NULL;
+    }
+}
+
+HRESULT WebCamoo::AttachVideo()
+{
+    HRESULT hr;
+
+    // Add a video filter.
+    IBaseFilter* pSrcFilter = NULL;
+        
+    // Use the system device enumerator and class enumerator to find
+    // a video capture/preview device, such as a desktop USB video camera.
+    hr = FindCaptureDevice(CLSID_VideoInputDeviceCategory, &pSrcFilter);
+    if (FAILED(hr)) return hr;
+   
+    // Add Capture filter to our graph.
+    hr = _pGraph->AddFilter(pSrcFilter, L"Video Capture");
+    if (FAILED(hr)) {
+        pSrcFilter->Release();
+        return hr;
+    }
+
+    // Render the preview pin on the video capture filter.
+    // Use this instead of _pGraph->RenderFile.
+    hr = _pCapture->RenderStream(
+        &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Video,
+        pSrcFilter, NULL, NULL);
+    if (FAILED(hr)) {
+        pSrcFilter->Release();
+        return hr;
+    }
+
+    // Now that the filter has been added to the graph and we have
+    // rendered its stream, we can release this reference to the filter.
+    pSrcFilter->Release();
+    
+    return hr;
+}
+
+HRESULT WebCamoo::AttachAudio()
+{
+    HRESULT hr;
+
+    // Add an audio filter.
+    IBaseFilter* pSrcFilter = NULL;
+        
+    // Use the system device enumerator and class enumerator to find
+    // a video capture/preview device, such as a desktop USB video camera.
+    hr = FindCaptureDevice(CLSID_AudioInputDeviceCategory, &pSrcFilter);
+    if (FAILED(hr)) return hr;
+   
+    // Add Capture filter to our graph.
+    hr = _pGraph->AddFilter(pSrcFilter, L"Audio Capture");
+    if (FAILED(hr)) {
+        pSrcFilter->Release();
+        return hr;
+    }
+
+    // Render the preview pin on the audio capture filter.
+    // Use this instead of _pGraph->RenderFile.
+    hr = _pCapture->RenderStream(
+        &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Audio,
+        pSrcFilter, NULL, NULL);
+    if (FAILED(hr)) {
+        pSrcFilter->Release();
+        return hr;
+    }
+
+    // Now that the filter has been added to the graph and we have
+    // rendered its stream, we can release this reference to the filter.
+    pSrcFilter->Release();
+    
+    return hr;
+}
 
 HRESULT WebCamoo::Initialize(HWND hWnd)
 {
     HRESULT hr;
 
-    // Create the filter graph.
-    hr = CoCreateInstance(
-        CLSID_FilterGraph, NULL, CLSCTX_INPROC,
-        IID_IGraphBuilder, (void**)&g_pGraph);
-    if (FAILED(hr)) return hr;
-
-    // Create the capture graph builder.
-    hr = CoCreateInstance(
-        CLSID_CaptureGraphBuilder2, NULL, CLSCTX_INPROC,
-        IID_ICaptureGraphBuilder2, (void**)&g_pCapture);
-    if (FAILED(hr)) return hr;
-    
     // Obtain interfaces for media control and Video Window.
-    hr = g_pGraph->QueryInterface(
-        IID_IMediaControl, (void**)&g_pMC);
+    hr = _pGraph->QueryInterface(
+        IID_IVideoWindow, (void**)&_pVW);
     if (FAILED(hr)) return hr;
 
-    hr = g_pGraph->QueryInterface(
-        IID_IVideoWindow, (void**)&g_pVW);
+    hr = _pGraph->QueryInterface(
+        IID_IMediaEventEx, (void**)&_pME);
     if (FAILED(hr)) return hr;
 
-    hr = g_pGraph->QueryInterface(
-        IID_IMediaEventEx, (void**)&g_pME);
+    hr = _pGraph->QueryInterface(
+        IID_IMediaControl, (void**)&_pMC);
     if (FAILED(hr)) return hr;
 
     // Set the window handle used to process graph events.
-    hr = g_pME->SetNotifyWindow(
+    hr = _pME->SetNotifyWindow(
         (OAHWND)hWnd, WM_GRAPHNOTIFY, 0);
     if (FAILED(hr)) return hr;
 
-    SetupVideo(hWnd);
-    return hr;
-}
-
-void WebCamoo::Uninitialize(void)
-{
-    // Stop previewing data.
-    if (g_pMC != NULL) {
-        g_pMC->StopWhenReady();
-        g_pMC->Release();
-        g_pMC = NULL;
-    }
-
-    g_psCurrent = Stopped;
-
-    // Stop receiving events.
-    if (g_pME != NULL) {
-        g_pME->SetNotifyWindow(NULL, WM_GRAPHNOTIFY, 0);
-        g_pME->Release();
-        g_pME = NULL;
-    }
-
-    // Relinquish ownership (IMPORTANT!) of the video window.
-    // Failing to call put_Owner can lead to assert failures within
-    // the video renderer, as it still assumes that it has a valid
-    // parent window.
-    if (g_pVW != NULL) {
-        g_pVW->put_Visible(OAFALSE);
-        g_pVW->put_Owner(NULL);
-        g_pVW->Release();
-        g_pVW = NULL;
-    }
-
-#if REGISTER_FILTERGRAPH
-    // Remove filter graph from the running object table   
-    if (g_dwGraphRegister) {
-        RemoveGraphFromRot(g_dwGraphRegister);
-        g_dwGraphRegister = 0;
-    }
-#endif
-
-    // Release DirectShow interfaces.
-    if (g_pGraph != NULL) {
-        g_pGraph->Release();
-        g_pGraph = NULL;
-    }
-    if (g_pCapture != NULL) {
-        g_pCapture->Release();
-        g_pCapture = NULL;
-    }
-}
-
-HRESULT WebCamoo::SetupVideo(HWND hWnd)
-{
-    HRESULT hr;
-
-    // Attach the filter graph to the capture graph.
-    hr = g_pCapture->SetFiltergraph(g_pGraph);
-    if (FAILED(hr)) return hr;
-
-    // Add a video filter.
-    {
-        IBaseFilter* pSrcFilter = NULL;
-        
-        // Use the system device enumerator and class enumerator to find
-        // a video capture/preview device, such as a desktop USB video camera.
-        hr = FindCaptureDevice(CLSID_VideoInputDeviceCategory, &pSrcFilter);
-        if (FAILED(hr)) return hr;
-   
-        // Add Capture filter to our graph.
-        hr = g_pGraph->AddFilter(pSrcFilter, L"Video Capture");
-        if (FAILED(hr)) {
-            pSrcFilter->Release();
-            return hr;
-        }
-
-        // Render the preview pin on the video capture filter.
-        // Use this instead of g_pGraph->RenderFile.
-        hr = g_pCapture->RenderStream(
-            &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Video,
-            pSrcFilter, NULL, NULL);
-        if (FAILED(hr)) {
-            pSrcFilter->Release();
-            return hr;
-        }
-
-        // Now that the filter has been added to the graph and we have
-        // rendered its stream, we can release this reference to the filter.
-        pSrcFilter->Release();
-    }
-
-    // Add an audio filter.
-    if (0) {
-        IBaseFilter* pSrcFilter = NULL;
-        
-        // Use the system device enumerator and class enumerator to find
-        // a video capture/preview device, such as a desktop USB video camera.
-        hr = FindCaptureDevice(CLSID_AudioInputDeviceCategory, &pSrcFilter);
-        if (FAILED(hr)) return hr;
-   
-        // Add Capture filter to our graph.
-        hr = g_pGraph->AddFilter(pSrcFilter, L"Audio Capture");
-        if (FAILED(hr)) {
-            pSrcFilter->Release();
-            return hr;
-        }
-
-        // Render the preview pin on the audio capture filter.
-        // Use this instead of g_pGraph->RenderFile.
-        hr = g_pCapture->RenderStream(
-            &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Audio,
-            pSrcFilter, NULL, NULL);
-        if (FAILED(hr)) {
-            pSrcFilter->Release();
-            return hr;
-        }
-
-        // Now that the filter has been added to the graph and we have
-        // rendered its stream, we can release this reference to the filter.
-        pSrcFilter->Release();
-    }
-
-#if REGISTER_FILTERGRAPH
-    // Add our graph to the running object table, which will allow
-    // the GraphEdit application to "spy" on our graph.
-    hr = AddGraphToRot(g_pGraph, &g_dwGraphRegister);
-    if (FAILED(hr)) {
-        g_dwGraphRegister = 0;
-    }
-#endif
-
-    // Set video window style and position.
-    hr = SetupVideoWindow(hWnd);
-    if (FAILED(hr)) return hr;
-
-    // Start previewing video data.
-    hr = g_pMC->Run();
-    if (FAILED(hr)) return hr;
-
-    // Remember current state.
-    g_psCurrent = Running;
-        
-    return S_OK;
-}
-
-void WebCamoo::ResizeVideoWindow(HWND hWnd)
-{
-    // Resize the video preview window to match owner window size
-    if (g_pVW != NULL) {
-        RECT rc;
-        // Make the preview video fill our window
-        GetClientRect(hWnd, &rc);
-        g_pVW->SetWindowPosition(0, 0, rc.right, rc.bottom);
-    }
-}
-
-HRESULT WebCamoo::SetupVideoWindow(HWND hWnd)
-{
-    HRESULT hr;
-
     // Set the video window to be a child of the main window.
-    hr = g_pVW->put_Owner((OAHWND)hWnd);
+    hr = _pVW->put_Owner((OAHWND)hWnd);
     if (FAILED(hr)) return hr;
     
     // Set video window style
-    hr = g_pVW->put_WindowStyle(WS_CHILD | WS_CLIPCHILDREN);
+    hr = _pVW->put_WindowStyle(WS_CHILD | WS_CLIPCHILDREN);
     if (FAILED(hr)) return hr;
 
     // Use helper function to position video window in client rect
@@ -431,10 +387,58 @@ HRESULT WebCamoo::SetupVideoWindow(HWND hWnd)
     ResizeVideoWindow(hWnd);
 
     // Make the video window visible, now that it is properly positioned.
-    hr = g_pVW->put_Visible(OATRUE);
+    hr = _pVW->put_Visible(OATRUE);
     if (FAILED(hr)) return hr;
 
+    // Start previewing video data.
+    hr = _pMC->Run();
+    if (FAILED(hr)) return hr;
+
+    // Remember current state.
+    _psCurrent = Running;
+        
     return hr;
+}
+
+void WebCamoo::Uninitialize(void)
+{
+    // Stop previewing data.
+    if (_pMC != NULL) {
+        _pMC->StopWhenReady();
+        _pMC->Release();
+        _pMC = NULL;
+    }
+
+    _psCurrent = Stopped;
+
+    // Relinquish ownership (IMPORTANT!) of the video window.
+    // Failing to call put_Owner can lead to assert failures within
+    // the video renderer, as it still assumes that it has a valid
+    // parent window.
+    if (_pVW != NULL) {
+        _pVW->put_Visible(OAFALSE);
+        _pVW->put_Owner(NULL);
+        _pVW->Release();
+        _pVW = NULL;
+    }
+
+    // Stop receiving events.
+    if (_pME != NULL) {
+        _pME->SetNotifyWindow(NULL, WM_GRAPHNOTIFY, 0);
+        _pME->Release();
+        _pME = NULL;
+    }
+}
+
+void WebCamoo::ResizeVideoWindow(HWND hWnd)
+{
+    // Resize the video preview window to match owner window size
+    if (_pVW != NULL) {
+        RECT rc;
+        // Make the preview video fill our window
+        GetClientRect(hWnd, &rc);
+        _pVW->SetWindowPosition(0, 0, rc.right, rc.bottom);
+    }
 }
 
 HRESULT WebCamoo::ChangePreviewState(int nShow)
@@ -442,18 +446,18 @@ HRESULT WebCamoo::ChangePreviewState(int nShow)
     HRESULT hr = S_OK;
     
     // If the media control interface isn't ready, don't call it.
-    if (!g_pMC) return S_OK;
+    if (!_pMC) return S_OK;
     
     if (nShow) {
-        if (g_psCurrent != Running) {
+        if (_psCurrent != Running) {
             // Start previewing video data.
-            hr = g_pMC->Run();
-            g_psCurrent = Running;
+            hr = _pMC->Run();
+            _psCurrent = Running;
         }
     } else {
         // Stop previewing video data.
-        hr = g_pMC->StopWhenReady();
-        g_psCurrent = Stopped;
+        hr = _pMC->StopWhenReady();
+        _psCurrent = Stopped;
     }
     
     return hr;
@@ -465,17 +469,18 @@ HRESULT WebCamoo::HandleGraphEvent(void)
     LONG_PTR evParam1, evParam2;
     HRESULT hr = S_OK;
 
-    if (!g_pME) return E_POINTER;
+    if (!_pME) return E_POINTER;
 
-    while (SUCCEEDED(g_pME->GetEvent(&evCode, &evParam1, &evParam2, 0))) {
+    while (SUCCEEDED(_pME->GetEvent(&evCode, &evParam1, &evParam2, 0))) {
         // Free event parameters to prevent memory leaks associated with
         // event parameter data.  While this application is not interested
         // in the received events, applications should always process them.
         //
-        hr = g_pME->FreeEventParams(evCode, evParam1, evParam2);
+        hr = _pME->FreeEventParams(evCode, evParam1, evParam2);
         
         // Insert event processing code here, if desired
     }
+
     return hr;
 }
 
@@ -501,8 +506,8 @@ void WebCamoo::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     }
 
     // Pass this message to the video window for notification of system changes.
-    if (g_pVW != NULL) {
-        g_pVW->NotifyOwnerMessage((LONG_PTR)hWnd, uMsg, wParam, lParam);
+    if (_pVW != NULL) {
+        _pVW->NotifyOwnerMessage((LONG_PTR)hWnd, uMsg, wParam, lParam);
     }
 }
 
@@ -557,6 +562,8 @@ int PASCAL WinMain(
     // Initialize App.
     WebCamoo* app = new WebCamoo();
     if (!app) exit(111);
+    if (FAILED(app->AttachVideo())) exit(111);
+    //if (FAILED(app->AttachAudio())) exit(111);
 
     // Register the window class.
     ATOM atom;
@@ -565,7 +572,7 @@ int PASCAL WinMain(
         klass.lpfnWndProc   = WndMainProc;
         klass.hInstance     = hInstance;
         klass.lpszClassName = CLASSNAME;
-        klass.lpszMenuName  = NULL;
+        klass.lpszMenuName  = MAKEINTRESOURCE(IDM_MENU);
 	klass.hbrBackground = (HBRUSH)(COLOR_WINDOW+1);
         klass.hCursor       = LoadCursor(NULL, IDC_ARROW);
         klass.hIcon         = NULL;

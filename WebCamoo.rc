@@ -43,3 +43,10 @@ BEGIN
     END
 END
 
+IDM_MENU MENU
+BEGIN
+    POPUP "&File"
+    BEGIN
+        MENUITEM "E&xit", IDM_EXIT
+    END
+END
