@@ -49,4 +49,14 @@ BEGIN
     BEGIN
         MENUITEM "E&xit", IDM_EXIT
     END
+
+    POPUP "&Input"
+    BEGIN
+	MENUITEM SEPARATOR
+    END
+
+    POPUP "&Output"
+    BEGIN
+	MENUITEM SEPARATOR
+    END
 END
