@@ -15,7 +15,6 @@
 
 #define _WIN32_WINNT 0x0500
 
-#include <tchar.h>
 #include <windows.h>
 #include <dshow.h>
 #include <stdio.h>
@@ -36,22 +35,24 @@
 //
 const int DEFAULT_VIDEO_WIDTH = 320;
 const int DEFAULT_VIDEO_HEIGHT = 320;
-const LPCTSTR APPLICATIONNAME = _T("Video Capture Previewer (WebCamoo)\0");
-const LPCTSTR CLASSNAME = _T("VidCapPreviewer\0");
+const LPCWSTR APPLICATIONNAME = L"Video Capture Previewer (WebCamoo)";
+const LPCWSTR CLASSNAME = L"VidCapPreviewer";
 
 // Application-defined message to notify app of filtergraph events.
 const UINT WM_GRAPHNOTIFY = WM_APP+1;
-const UINT IDM_DEVICE_VIDEO_NONE = 9001;
-const UINT IDM_DEVICE_AUDIO_NONE = 9002;
-const UINT IDM_DEVICE_BASE = 10000;
+const UINT IDM_DEVICE_VIDEO_NONE = 10000;
+const UINT IDM_DEVICE_VIDEO_START = 10001;
+const UINT IDM_DEVICE_VIDEO_END = 19999;
+const UINT IDM_DEVICE_AUDIO_NONE = 20000;
+const UINT IDM_DEVICE_AUDIO_START = 20001;
+const UINT IDM_DEVICE_AUDIO_END = 29999;
 
 
-// Alert
-static void Alert(TCHAR *szFormat, ...)
+// alert
+static void alert(LPCWSTR szFormat, ...)
 {
-    TCHAR szBuffer[1024];  // Large buffer for long filenames or URLs.
+    WCHAR szBuffer[1024];  // Large buffer for long filenames or URLs.
     const size_t NUMCHARS = sizeof(szBuffer) / sizeof(szBuffer[0]);
-    const int LASTCHAR = NUMCHARS - 1;
 
     // Format the input string
     va_list pArgs;
@@ -59,26 +60,16 @@ static void Alert(TCHAR *szFormat, ...)
 
     // Use a bounded buffer size to prevent buffer overruns.  Limit count to
     // character size minus one to allow for a NULL terminating character.
-    (void)StringCchVPrintf(szBuffer, NUMCHARS - 1, szFormat, pArgs);
+    (void)StringCchVPrintf(szBuffer, NUMCHARS-1, szFormat, pArgs);
     va_end(pArgs);
-
     // Ensure that the formatted string is NULL-terminated.
-    szBuffer[LASTCHAR] = _T('\0');
-
+    szBuffer[NUMCHARS-1] = L'\0';
+    
 #ifdef WINDOWS
-    MessageBox(NULL, szBuffer, _T("WebCamoo Message"), MB_OK | MB_ICONERROR);
+    MessageBox(NULL, szBuffer, L"WebCamoo Message", MB_OK | MB_ICONERROR);
 #else
-    _ftprintf(stderr, _T("%s\n"), szBuffer);
+    fwprintf(stderr, L"%s\n", szBuffer);
 #endif
-}
-
-// ClearMenu
-static void ClearMenu(HMENU hMenu)
-{
-    int n = GetMenuItemCount(hMenu);
-    for(int i = 0; i < n; i++) {
-        RemoveMenu(hMenu, 0, MF_BYPOSITION);
-    }
 }
 
 
@@ -137,6 +128,84 @@ static void RemoveGraphFromRot(DWORD pdwRegister)
         pROT->Revoke(pdwRegister);
         pROT->Release();
     }
+}
+
+// ResetCaptureDevices
+static void ResetCaptureDevices(HMENU hMenu)
+{
+    int n = GetMenuItemCount(hMenu);
+    for(int i = 0; i < n; i++) {
+        MENUITEMINFO mii = {0};
+        mii.cbSize = sizeof(mii);
+        GetMenuItemInfo(hMenu, i, TRUE, &mii);
+        IMoniker* pMoniker = (IMoniker*)mii.dwItemData;
+        if (pMoniker != NULL) {
+            pMoniker->Release();
+        }
+        RemoveMenu(hMenu, 0, MF_BYPOSITION);
+    }
+}
+
+// AddCaptureDevices
+static HRESULT AddCaptureDevices(HMENU hMenu, UINT wID, CLSID category)
+{
+    HRESULT hr;
+    IEnumMoniker* pClassEnum = NULL;
+    ICreateDevEnum* pDevEnum = NULL;
+
+    // Create the system device enumerator.
+    hr = CoCreateInstance(
+        CLSID_SystemDeviceEnum, NULL, CLSCTX_INPROC,
+        IID_ICreateDevEnum, (void**)&pDevEnum);
+    if (FAILED(hr)) goto fail;
+
+    // Create an enumerator for the video capture devices.
+    hr = pDevEnum->CreateClassEnumerator(
+        category, &pClassEnum, 0);
+    if (FAILED(hr)) goto fail;
+
+    // If there are no enumerators for the requested type, then 
+    // CreateClassEnumerator will succeed, but pClassEnum will be NULL.
+    if (pClassEnum != NULL) {
+        IMoniker* pMoniker = NULL;
+        // Use the first video capture device on the device list.
+        // Note that if the Next() call succeeds but there are no monikers,
+        // it will return S_FALSE (which is not a failure).  Therefore, we
+        // check that the return code is S_OK instead of using SUCCEEDED() macro.
+        while (pClassEnum->Next(1, &pMoniker, NULL) == S_OK) {
+            IPropertyBag* pBag = NULL;
+            hr = pMoniker->BindToStorage(NULL, NULL, IID_IPropertyBag, (void **)&pBag);
+            if (SUCCEEDED(hr)) {
+                VARIANT var;
+                var.vt = VT_BSTR;
+                hr = pBag->Read(L"FriendlyName", &var, NULL);
+                if (SUCCEEDED(hr)) {
+                    MENUITEMINFO mii = {0};
+                    mii.cbSize = sizeof(mii);
+                    mii.fMask = (MIIM_STRING | MIIM_ID | MIIM_DATA);
+                    mii.dwTypeData = var.bstrVal;
+                    mii.dwItemData = (ULONG_PTR)pMoniker;
+                    mii.cch = wcslen(var.bstrVal);
+                    mii.wID = wID++;
+                    InsertMenuItem(hMenu, UINT_MAX, TRUE, &mii);
+                    SysFreeString(var.bstrVal);
+                }
+                pBag->Release();
+            }
+        }
+    }
+
+fail:
+    if (pDevEnum != NULL) {
+        pDevEnum->Release();
+        pDevEnum = NULL;
+    }
+    if (pClassEnum != NULL) {
+        pClassEnum->Release();
+        pClassEnum = NULL;
+    }
+
+    return hr;
 }
 
 // FindCaptureDevice
@@ -215,19 +284,18 @@ class WebCamoo
     DWORD _dwGraphRegister;
 
     HWND _hWnd;
-    UINT _ID;
     HMENU _deviceMenu;
+    IBaseFilter* _pVideo;
+    IBaseFilter* _pAudio;
     IVideoWindow* _pVW;
-    IMediaControl* _pMC;
     IMediaEventEx* _pME;
     PLAYSTATE _psCurrent;
 
-    void UpdateMenu();
+    void UpdateDeviceMenu();
     void DoCommand(UINT cmd);
     void ResizeVideoWindow(void);
     HRESULT ChangePreviewState(int nShow);
     HRESULT HandleGraphEvent(void);
-    HRESULT AddCaptureDevices(HMENU hMenu, CLSID category);
 
 public:
     WebCamoo();
@@ -236,8 +304,8 @@ public:
     HRESULT Initialize(HWND hWnd);
     void Uninitialize(void);
     void HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-    HRESULT AttachVideo();
-    HRESULT AttachAudio();
+    HRESULT AttachVideo(IBaseFilter* pVideo, LPCWSTR name);
+    HRESULT AttachAudio(IBaseFilter* pAudio, LPCWSTR name);
 };
 
 WebCamoo::WebCamoo()
@@ -247,9 +315,10 @@ WebCamoo::WebCamoo()
     _pGraph = NULL;
     _pCapture = NULL;
     _dwGraphRegister = 0;
+    _pVideo = NULL;
+    _pAudio = NULL;
     
     _pVW = NULL;
-    _pMC = NULL;
     _pME = NULL;
     _psCurrent = Stopped;
 
@@ -300,152 +369,107 @@ WebCamoo::~WebCamoo()
     }
 }
 
-// AddCaptureDevices
-HRESULT WebCamoo::AddCaptureDevices(
-    HMENU hMenu,
-    CLSID category)
+// UpdateDeviceMenu
+void WebCamoo::UpdateDeviceMenu()
 {
-    HRESULT hr;
-    IEnumMoniker* pClassEnum = NULL;
-    ICreateDevEnum* pDevEnum = NULL;
-
-    // Create the system device enumerator.
-    hr = CoCreateInstance(
-        CLSID_SystemDeviceEnum, NULL, CLSCTX_INPROC,
-        IID_ICreateDevEnum, (void**)&pDevEnum);
-    if (FAILED(hr)) goto fail;
-
-    // Create an enumerator for the video capture devices.
-    hr = pDevEnum->CreateClassEnumerator(
-        category, &pClassEnum, 0);
-    if (FAILED(hr)) goto fail;
-
-    // If there are no enumerators for the requested type, then 
-    // CreateClassEnumerator will succeed, but pClassEnum will be NULL.
-    if (pClassEnum != NULL) {
-        IMoniker* pMoniker = NULL;
-        // Use the first video capture device on the device list.
-        // Note that if the Next() call succeeds but there are no monikers,
-        // it will return S_FALSE (which is not a failure).  Therefore, we
-        // check that the return code is S_OK instead of using SUCCEEDED() macro.
-        while (pClassEnum->Next(1, &pMoniker, NULL) == S_OK) {
-            IPropertyBag* pBag = NULL;
-            hr = pMoniker->BindToStorage(NULL, NULL, IID_IPropertyBag, (void **)&pBag);
-            if (SUCCEEDED(hr)) {
-                VARIANT var;
-                var.vt = VT_BSTR;
-                hr = pBag->Read(L"FriendlyName", &var, NULL);
-                if (SUCCEEDED(hr)) {
-                    MENUITEMINFO mii = {0};
-                    mii.cbSize = sizeof(mii);
-                    mii.fMask = (MIIM_STRING | MIIM_ID | MIIM_DATA);
-                    mii.dwTypeData = var.bstrVal;
-                    mii.dwItemData = (ULONG_PTR)pMoniker;
-                    mii.cch = wcslen(var.bstrVal);
-                    mii.wID = (_ID)++;
-                    InsertMenuItem(hMenu, UINT_MAX, TRUE, &mii);
-                    SysFreeString(var.bstrVal);
-                }
-                pBag->Release();
-            }
-        }
-    }
-
-fail:
-    if (pDevEnum != NULL) {
-        pDevEnum->Release();
-        pDevEnum = NULL;
-    }
-    if (pClassEnum != NULL) {
-        pClassEnum->Release();
-        pClassEnum = NULL;
-    }
-
-    return hr;
-}
-
-// UpdateMenu
-void WebCamoo::UpdateMenu()
-{
-    _ID = IDM_DEVICE_BASE;
-    ClearMenu(_deviceMenu);
-    AppendMenu(_deviceMenu, MF_STRING | MF_DISABLED, 0, _T("Video Devices"));
-    AppendMenu(_deviceMenu, MF_STRING | MF_ENABLED, IDM_DEVICE_VIDEO_NONE, _T("None"));
-    AddCaptureDevices(_deviceMenu, CLSID_VideoInputDeviceCategory);
+    ResetCaptureDevices(_deviceMenu);
+    AppendMenu(_deviceMenu, MF_STRING | MF_DISABLED, 0, L"Video Devices");
+    AppendMenu(_deviceMenu, MF_STRING | MF_ENABLED, IDM_DEVICE_VIDEO_NONE, L"None");
+    AddCaptureDevices(
+        _deviceMenu, IDM_DEVICE_VIDEO_START,
+        CLSID_VideoInputDeviceCategory);
     AppendMenu(_deviceMenu, MF_SEPARATOR | MF_ENABLED, 0, NULL);
-    AppendMenu(_deviceMenu, MF_STRING | MF_DISABLED, 0, _T("Audio Devices"));
-    AppendMenu(_deviceMenu, MF_STRING | MF_ENABLED, IDM_DEVICE_AUDIO_NONE, _T("None"));
-    AddCaptureDevices(_deviceMenu, CLSID_AudioInputDeviceCategory);
+    AppendMenu(_deviceMenu, MF_STRING | MF_DISABLED, 0, L"Audio Devices");
+    AppendMenu(_deviceMenu, MF_STRING | MF_ENABLED, IDM_DEVICE_AUDIO_NONE, L"None");
+    AddCaptureDevices(
+        _deviceMenu, IDM_DEVICE_AUDIO_START,
+        CLSID_AudioInputDeviceCategory);
 }
 
-HRESULT WebCamoo::AttachVideo()
+HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo, LPCWSTR name)
 {
     HRESULT hr;
 
-    // Add a video filter.
-    IBaseFilter* pSrcFilter = NULL;
-        
-    // Use the system device enumerator and class enumerator to find
-    // a video capture/preview device, such as a desktop USB video camera.
-    hr = FindCaptureDevice(CLSID_VideoInputDeviceCategory, &pSrcFilter);
-    if (FAILED(hr)) return hr;
-   
-    // Add Capture filter to our graph.
-    hr = _pGraph->AddFilter(pSrcFilter, L"Video Capture");
-    if (FAILED(hr)) {
-        pSrcFilter->Release();
-        return hr;
-    }
-
-    // Render the preview pin on the video capture filter.
-    // Use this instead of _pGraph->RenderFile.
-    hr = _pCapture->RenderStream(
-        &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Video,
-        pSrcFilter, NULL, NULL);
-    if (FAILED(hr)) {
-        pSrcFilter->Release();
-        return hr;
-    }
-
-    // Now that the filter has been added to the graph and we have
-    // rendered its stream, we can release this reference to the filter.
-    pSrcFilter->Release();
+    ChangePreviewState(FALSE);
     
+    if (_pVW != NULL) {
+        _pVW->put_Visible(OAFALSE);
+        _pVW->put_Owner(NULL);
+    }
+
+    if (_pVideo != NULL) {
+        _pGraph->RemoveFilter(_pVideo);
+        _pVideo->Release();
+        _pVideo = NULL;
+    }
+        
+    if (pVideo != NULL) {
+        // Add Capture filter to our graph.
+        hr = _pGraph->AddFilter(pVideo, name);
+        if (FAILED(hr)) return hr;
+
+        _pVideo = pVideo;
+        _pVideo->AddRef();
+
+        // Render the preview pin on the video capture filter.
+        // Use this instead of _pGraph->RenderFile.
+        hr = _pCapture->RenderStream(
+            &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Video,
+            _pVideo, NULL, NULL);
+        if (FAILED(hr)) return hr;
+    
+        // Obtain interfaces for media control and Video Window.
+        hr = _pGraph->QueryInterface(
+            IID_IVideoWindow, (void**)&_pVW);
+        if (FAILED(hr)) return hr;
+
+        // Set the video window to be a child of the main window.
+        hr = _pVW->put_Owner((OAHWND)_hWnd);
+        if (FAILED(hr)) return hr;
+    
+        // Set video window style
+        hr = _pVW->put_WindowStyle(WS_CHILD | WS_CLIPCHILDREN);
+        if (FAILED(hr)) return hr;
+
+        // Use helper function to position video window in client rect
+        // of main application window.
+        ResizeVideoWindow();
+
+        // Make the video window visible, now that it is properly positioned.
+        hr = _pVW->put_Visible(OATRUE);
+        if (FAILED(hr)) return hr;
+
+        ChangePreviewState(TRUE);
+    }
+
     return hr;
 }
 
-HRESULT WebCamoo::AttachAudio()
+HRESULT WebCamoo::AttachAudio(IBaseFilter* pAudio, LPCWSTR name)
 {
     HRESULT hr;
 
-    // Add an audio filter.
-    IBaseFilter* pSrcFilter = NULL;
+    if (_pAudio != NULL) {
+        _pGraph->RemoveFilter(_pAudio);
+        _pAudio->Release();
+        _pAudio = NULL;
+    }
         
-    // Use the system device enumerator and class enumerator to find
-    // a video capture/preview device, such as a desktop USB video camera.
-    hr = FindCaptureDevice(CLSID_AudioInputDeviceCategory, &pSrcFilter);
-    if (FAILED(hr)) return hr;
-   
-    // Add Capture filter to our graph.
-    hr = _pGraph->AddFilter(pSrcFilter, L"Audio Capture");
-    if (FAILED(hr)) {
-        pSrcFilter->Release();
-        return hr;
-    }
+    if (pAudio != NULL) {
+        // Add Capture filter to our graph.
+        hr = _pGraph->AddFilter(pAudio, name);
+        if (FAILED(hr)) return hr;
 
-    // Render the preview pin on the audio capture filter.
-    // Use this instead of _pGraph->RenderFile.
-    hr = _pCapture->RenderStream(
-        &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Audio,
-        pSrcFilter, NULL, NULL);
-    if (FAILED(hr)) {
-        pSrcFilter->Release();
-        return hr;
-    }
+        _pAudio = pAudio;
+        _pAudio->AddRef();
 
-    // Now that the filter has been added to the graph and we have
-    // rendered its stream, we can release this reference to the filter.
-    pSrcFilter->Release();
+        // Render the preview pin on the audio capture filter.
+        // Use this instead of _pGraph->RenderFile.
+        hr = _pCapture->RenderStream(
+            &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Audio,
+            _pAudio, NULL, NULL);
+        if (FAILED(hr)) return hr;
+    }
     
     return hr;
 }
@@ -456,19 +480,10 @@ HRESULT WebCamoo::Initialize(HWND hWnd)
 
     _hWnd = hWnd;
     _deviceMenu = GetSubMenu(GetMenu(hWnd), 1);
-    UpdateMenu();
+    UpdateDeviceMenu();
     
-    // Obtain interfaces for media control and Video Window.
-    hr = _pGraph->QueryInterface(
-        IID_IVideoWindow, (void**)&_pVW);
-    if (FAILED(hr)) return hr;
-
     hr = _pGraph->QueryInterface(
         IID_IMediaEventEx, (void**)&_pME);
-    if (FAILED(hr)) return hr;
-
-    hr = _pGraph->QueryInterface(
-        IID_IMediaControl, (void**)&_pMC);
     if (FAILED(hr)) return hr;
 
     // Set the window handle used to process graph events.
@@ -476,42 +491,13 @@ HRESULT WebCamoo::Initialize(HWND hWnd)
         (OAHWND)hWnd, WM_GRAPHNOTIFY, 0);
     if (FAILED(hr)) return hr;
 
-    // Set the video window to be a child of the main window.
-    hr = _pVW->put_Owner((OAHWND)hWnd);
-    if (FAILED(hr)) return hr;
-    
-    // Set video window style
-    hr = _pVW->put_WindowStyle(WS_CHILD | WS_CLIPCHILDREN);
-    if (FAILED(hr)) return hr;
-
-    // Use helper function to position video window in client rect
-    // of main application window.
-    ResizeVideoWindow();
-
-    // Make the video window visible, now that it is properly positioned.
-    hr = _pVW->put_Visible(OATRUE);
-    if (FAILED(hr)) return hr;
-
-    // Start previewing video data.
-    hr = _pMC->Run();
-    if (FAILED(hr)) return hr;
-
-    // Remember current state.
-    _psCurrent = Running;
-        
     return hr;
 }
 
 void WebCamoo::Uninitialize(void)
 {
-    // Stop previewing data.
-    if (_pMC != NULL) {
-        _pMC->StopWhenReady();
-        _pMC->Release();
-        _pMC = NULL;
-    }
-
-    _psCurrent = Stopped;
+    AttachVideo(NULL, NULL);
+    AttachAudio(NULL, NULL);
 
     // Relinquish ownership (IMPORTANT!) of the video window.
     // Failing to call put_Owner can lead to assert failures within
@@ -531,6 +517,11 @@ void WebCamoo::Uninitialize(void)
         _pME = NULL;
     }
 
+    if (_deviceMenu != NULL) {
+        ResetCaptureDevices(_deviceMenu);
+        _deviceMenu = NULL;
+    }
+    
     _hWnd = NULL;
 }
 
@@ -547,20 +538,22 @@ void WebCamoo::ResizeVideoWindow(void)
 
 HRESULT WebCamoo::ChangePreviewState(int nShow)
 {
-    HRESULT hr = S_OK;
+    HRESULT hr;
+    IMediaControl* pMC;
     
-    // If the media control interface isn't ready, don't call it.
-    if (!_pMC) return S_OK;
-    
+    hr = _pGraph->QueryInterface(
+        IID_IMediaControl, (void**)&pMC);
+    if (FAILED(hr)) return hr;
+
     if (nShow) {
         if (_psCurrent != Running) {
             // Start previewing video data.
-            hr = _pMC->Run();
+            hr = pMC->Run();
             _psCurrent = Running;
         }
     } else {
         // Stop previewing video data.
-        hr = _pMC->StopWhenReady();
+        hr = pMC->StopWhenReady();
         _psCurrent = Stopped;
     }
     
@@ -595,11 +588,53 @@ void WebCamoo::DoCommand(UINT cmd)
         SendMessage(_hWnd, WM_CLOSE, 0, 0);
         break;
 
+    case IDM_DEVICE_VIDEO_NONE:
+        AttachVideo(NULL, NULL);
+        break;
+
+    case IDM_DEVICE_AUDIO_NONE:
+        AttachAudio(NULL, NULL);
+        break;
+
     default:
-        if (IDM_DEVICE_BASE <= cmd) {
+        if (IDM_DEVICE_VIDEO_START <= cmd &&
+            cmd <= IDM_DEVICE_VIDEO_END) {
+            WCHAR name[1024];
             MENUITEMINFO mii = {0};
             mii.cbSize = sizeof(mii);
-            GetMenuItemInfo(_deviceMenu, cmd, FALSE, &mii);
+            mii.fMask = (MIIM_STRING | MIIM_DATA);
+            mii.dwTypeData = name;
+            mii.cch = 1024;
+            if (GetMenuItemInfo(_deviceMenu, cmd, FALSE, &mii)) {
+                if (mii.dwItemData != NULL) {
+                    IMoniker* pMoniker = (IMoniker*)mii.dwItemData;
+                    IBaseFilter* pVideo = NULL;
+                    HRESULT hr = pMoniker->BindToObject(0, 0, IID_IBaseFilter, (void**)&pVideo);
+                    if (SUCCEEDED(hr)) {
+                        AttachVideo(pVideo, mii.dwTypeData);
+                        pVideo->Release();
+                    }
+                }
+            }
+        } else if (IDM_DEVICE_AUDIO_START <= cmd &&
+                   cmd <= IDM_DEVICE_AUDIO_END) {
+            WCHAR name[1024];
+            MENUITEMINFO mii = {0};
+            mii.cbSize = sizeof(mii);
+            mii.fMask = (MIIM_STRING | MIIM_DATA);
+            mii.dwTypeData = name;
+            mii.cch = 1024;
+            if (GetMenuItemInfo(_deviceMenu, cmd, FALSE, &mii)) {
+                if (mii.dwItemData != NULL) {
+                    IMoniker* pMoniker = (IMoniker*)mii.dwItemData;
+                    IBaseFilter* pAudio = NULL;
+                    HRESULT hr = pMoniker->BindToObject(0, 0, IID_IBaseFilter, (void**)&pAudio);
+                    if (SUCCEEDED(hr)) {
+                        AttachAudio(pAudio, mii.dwTypeData);
+                        pAudio->Release();
+                    }
+                }
+            }
         }
     }
 }
@@ -688,8 +723,6 @@ int WebCamooMain(
     // Initialize App.
     WebCamoo* app = new WebCamoo();
     if (!app) exit(111);
-    if (FAILED(app->AttachVideo())) exit(111);
-    //if (FAILED(app->AttachAudio())) exit(111);
 
     // Register the window class.
     ATOM atom;
@@ -699,7 +732,7 @@ int WebCamooMain(
         klass.hInstance     = hInstance;
         klass.lpszClassName = CLASSNAME;
         klass.lpszMenuName  = MAKEINTRESOURCE(IDM_MENU);
-	klass.hbrBackground = (HBRUSH)(COLOR_WINDOW+1);
+	klass.hbrBackground = (HBRUSH)(COLOR_APPWORKSPACE+1);
         klass.hCursor       = LoadCursor(NULL, IDC_ARROW);
         klass.hIcon         = NULL;
         atom = RegisterClass(&klass);
