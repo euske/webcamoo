@@ -22,6 +22,7 @@
 #include <stdexcept>
 
 #include "WebCamoo.h"
+#include "Filtaa.h"
 
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "shell32.lib")
@@ -285,6 +286,7 @@ class WebCamoo
 
     HWND _hWnd;
     HMENU _deviceMenu;
+    Filtaa* _pFiltaa;
     IBaseFilter* _pVideo;
     IBaseFilter* _pAudio;
     IVideoWindow* _pVW;
@@ -317,6 +319,7 @@ WebCamoo::WebCamoo()
     _dwGraphRegister = 0;
     _pVideo = NULL;
     _pAudio = NULL;
+    _pFiltaa = NULL;
     
     _pVW = NULL;
     _pME = NULL;
@@ -397,12 +400,20 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo, LPCWSTR name)
         _pVW->put_Owner(NULL);
     }
 
+    if (_pFiltaa != NULL) {
+        IBaseFilter* pFilter = NULL;
+        _pFiltaa->QueryInterface(IID_IBaseFilter, (void**)&pFilter);
+        _pGraph->RemoveFilter(pFilter);
+        _pFiltaa->Release();
+        _pFiltaa = NULL;
+    }
+
     if (_pVideo != NULL) {
         _pGraph->RemoveFilter(_pVideo);
         _pVideo->Release();
         _pVideo = NULL;
     }
-        
+    
     if (pVideo != NULL) {
         // Add Capture filter to our graph.
         hr = _pGraph->AddFilter(pVideo, name);
@@ -410,6 +421,15 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo, LPCWSTR name)
 
         _pVideo = pVideo;
         _pVideo->AddRef();
+
+        // Add a filter.
+        _pFiltaa = new Filtaa();
+        {
+            IBaseFilter* pFilter = NULL;
+            _pFiltaa->QueryInterface(IID_IBaseFilter, (void**)&pFilter);
+            hr = _pGraph->AddFilter(pFilter, L"Filtaa");
+            if (FAILED(hr)) return hr;
+        }
 
         // Render the preview pin on the video capture filter.
         // Use this instead of _pGraph->RenderFile.

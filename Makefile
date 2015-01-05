@@ -28,11 +28,12 @@ clean:
 	-$(DEL) $(TARGET)
 	-$(DEL) *.lib *.exp *.obj *.res *.ilk *.pdb *.manifest
 
-$(TARGET): WebCamoo.res WebCamoo.obj
+$(TARGET): WebCamoo.res WebCamoo.obj Filtaa.obj
 	$(LINK) $(LDFLAGS) /manifest /out:$@ $** $(LIBS)
 	$(MT) -manifest $@.manifest -outputresource:$@;1
 
 WebCamoo.cpp: WebCamoo.h
+Filtaa.cpp: Filtaa.h WebCamoo.h
 WebCamoo.rc: WebCamoo.h
 
 .cpp.obj:
