@@ -186,7 +186,7 @@ static HRESULT AddCaptureDevices(HMENU hMenu, UINT wID, CLSID category)
                     mii.fMask = (MIIM_STRING | MIIM_ID | MIIM_DATA);
                     mii.dwTypeData = var.bstrVal;
                     mii.dwItemData = (ULONG_PTR)pMoniker;
-                    mii.cch = wcslen(var.bstrVal);
+                    mii.cch = lstrlen(var.bstrVal);
                     mii.wID = wID++;
                     InsertMenuItem(hMenu, UINT_MAX, TRUE, &mii);
                     SysFreeString(var.bstrVal);
@@ -296,7 +296,7 @@ class WebCamoo
     void UpdateDeviceMenu();
     void DoCommand(UINT cmd);
     void ResizeVideoWindow(void);
-    HRESULT ChangePreviewState(int nShow);
+    HRESULT UpdatePreviewState(BOOL running);
     HRESULT HandleGraphEvent(void);
 
 public:
@@ -393,7 +393,7 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo, LPCWSTR name)
 {
     HRESULT hr;
 
-    ChangePreviewState(FALSE);
+    UpdatePreviewState(FALSE);
     
     if (_pVW != NULL) {
         _pVW->put_Visible(OAFALSE);
@@ -459,7 +459,7 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo, LPCWSTR name)
         hr = _pVW->put_Visible(OATRUE);
         if (FAILED(hr)) return hr;
 
-        ChangePreviewState(TRUE);
+        UpdatePreviewState(TRUE);
     }
 
     return hr;
@@ -468,6 +468,8 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo, LPCWSTR name)
 HRESULT WebCamoo::AttachAudio(IBaseFilter* pAudio, LPCWSTR name)
 {
     HRESULT hr;
+
+    UpdatePreviewState(FALSE);
 
     if (_pAudio != NULL) {
         _pGraph->RemoveFilter(_pAudio);
@@ -489,6 +491,8 @@ HRESULT WebCamoo::AttachAudio(IBaseFilter* pAudio, LPCWSTR name)
             &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Audio,
             _pAudio, NULL, NULL);
         if (FAILED(hr)) return hr;
+
+        UpdatePreviewState(TRUE);
     }
     
     return hr;
@@ -556,7 +560,7 @@ void WebCamoo::ResizeVideoWindow(void)
     }
 }
 
-HRESULT WebCamoo::ChangePreviewState(int nShow)
+HRESULT WebCamoo::UpdatePreviewState(BOOL running)
 {
     HRESULT hr;
     IMediaControl* pMC;
@@ -565,7 +569,10 @@ HRESULT WebCamoo::ChangePreviewState(int nShow)
         IID_IMediaControl, (void**)&pMC);
     if (FAILED(hr)) return hr;
 
-    if (nShow) {
+    if (running &&
+        IsWindowVisible(_hWnd) &&
+        !IsIconic(_hWnd) &&
+        (_pAudio != NULL || _pVideo != NULL)) {
         if (_psCurrent != Running) {
             // Start previewing video data.
             hr = pMC->Run();
@@ -673,7 +680,7 @@ void WebCamoo::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         break;
         
     case WM_WINDOWPOSCHANGED:
-        ChangePreviewState(!IsIconic(_hWnd));
+        UpdatePreviewState(TRUE);
         break;
         
     case WM_GRAPHNOTIFY:
