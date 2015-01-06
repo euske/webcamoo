@@ -287,8 +287,11 @@ class WebCamoo
     HWND _hWnd;
     HMENU _deviceMenu;
     Filtaa* _pFiltaa;
-    IBaseFilter* _pVideo;
-    IBaseFilter* _pAudio;
+    IBaseFilter* _pVideoSrc;
+    IBaseFilter* _pAudioSrc;
+    IBaseFilter* _pVideoSink;
+    IBaseFilter* _pAudioSink;
+
     IVideoWindow* _pVW;
     IMediaEventEx* _pME;
     PLAYSTATE _psCurrent;
@@ -317,8 +320,10 @@ WebCamoo::WebCamoo()
     _pGraph = NULL;
     _pCapture = NULL;
     _dwGraphRegister = 0;
-    _pVideo = NULL;
-    _pAudio = NULL;
+    _pVideoSrc = NULL;
+    _pAudioSrc = NULL;
+    _pVideoSink = NULL;
+    _pAudioSink = NULL;
     _pFiltaa = NULL;
     
     _pVW = NULL;
@@ -349,10 +354,37 @@ WebCamoo::WebCamoo()
             _dwGraphRegister = 0;
         }
     }
+
+    // Create the video window.
+    hr = CoCreateInstance(
+        CLSID_VideoRendererDefault, NULL, CLSCTX_INPROC,
+        IID_IBaseFilter, (void**)&_pVideoSink);
+    if (FAILED(hr)) throw std::exception("Unable to create a Video Renderer.");
+    hr = _pGraph->AddFilter(_pVideoSink, L"VideoSink");
+    if (FAILED(hr)) throw std::exception("Unable to add the Video Renderer.");
+
+    // Create the audio output.
+    hr = CoCreateInstance(
+        CLSID_DSoundRender, NULL, CLSCTX_INPROC,
+        IID_IBaseFilter, (void**)&_pAudioSink);
+    if (FAILED(hr)) throw std::exception("Unable to create a Audio Renderer.");
+    hr = _pGraph->AddFilter(_pAudioSink, L"AudioSink");
+    if (FAILED(hr)) throw std::exception("Unable to add the Audio Renderer.");
+    
 }
 
 WebCamoo::~WebCamoo()
 {
+    if (_pVideoSink != NULL) {
+        _pVideoSink->Release();
+        _pVideoSink = NULL;
+    }
+    
+    if (_pAudioSink != NULL) {
+        _pAudioSink->Release();
+        _pAudioSink = NULL;
+    }
+    
     if (REGISTER_FILTERGRAPH) {
         // Remove filter graph from the running object table   
         if (_dwGraphRegister) {
@@ -408,10 +440,10 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo, LPCWSTR name)
         _pFiltaa = NULL;
     }
 
-    if (_pVideo != NULL) {
-        _pGraph->RemoveFilter(_pVideo);
-        _pVideo->Release();
-        _pVideo = NULL;
+    if (_pVideoSrc != NULL) {
+        _pGraph->RemoveFilter(_pVideoSrc);
+        _pVideoSrc->Release();
+        _pVideoSrc = NULL;
     }
     
     if (pVideo != NULL) {
@@ -419,8 +451,8 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo, LPCWSTR name)
         hr = _pGraph->AddFilter(pVideo, name);
         if (FAILED(hr)) return hr;
 
-        _pVideo = pVideo;
-        _pVideo->AddRef();
+        _pVideoSrc = pVideo;
+        _pVideoSrc->AddRef();
 
         // Add a filter.
         _pFiltaa = new Filtaa();
@@ -435,11 +467,11 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo, LPCWSTR name)
         // Use this instead of _pGraph->RenderFile.
         hr = _pCapture->RenderStream(
             &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Video,
-            _pVideo, NULL, NULL);
+            _pVideoSrc, NULL, _pVideoSink);
         if (FAILED(hr)) return hr;
     
         // Obtain interfaces for media control and Video Window.
-        hr = _pGraph->QueryInterface(
+        hr = _pVideoSink->QueryInterface(
             IID_IVideoWindow, (void**)&_pVW);
         if (FAILED(hr)) return hr;
 
@@ -471,10 +503,10 @@ HRESULT WebCamoo::AttachAudio(IBaseFilter* pAudio, LPCWSTR name)
 
     UpdatePreviewState(FALSE);
 
-    if (_pAudio != NULL) {
-        _pGraph->RemoveFilter(_pAudio);
-        _pAudio->Release();
-        _pAudio = NULL;
+    if (_pAudioSrc != NULL) {
+        _pGraph->RemoveFilter(_pAudioSrc);
+        _pAudioSrc->Release();
+        _pAudioSrc = NULL;
     }
         
     if (pAudio != NULL) {
@@ -482,14 +514,14 @@ HRESULT WebCamoo::AttachAudio(IBaseFilter* pAudio, LPCWSTR name)
         hr = _pGraph->AddFilter(pAudio, name);
         if (FAILED(hr)) return hr;
 
-        _pAudio = pAudio;
-        _pAudio->AddRef();
+        _pAudioSrc = pAudio;
+        _pAudioSrc->AddRef();
 
         // Render the preview pin on the audio capture filter.
         // Use this instead of _pGraph->RenderFile.
         hr = _pCapture->RenderStream(
             &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Audio,
-            _pAudio, NULL, NULL);
+            _pAudioSrc, NULL, _pAudioSink);
         if (FAILED(hr)) return hr;
 
         UpdatePreviewState(TRUE);
@@ -572,7 +604,7 @@ HRESULT WebCamoo::UpdatePreviewState(BOOL running)
     if (running &&
         IsWindowVisible(_hWnd) &&
         !IsIconic(_hWnd) &&
-        (_pAudio != NULL || _pVideo != NULL)) {
+        (_pAudioSrc != NULL || _pVideoSrc != NULL)) {
         if (_psCurrent != Running) {
             // Start previewing video data.
             hr = pMC->Run();
