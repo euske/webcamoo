@@ -8,6 +8,34 @@
 const LPCWSTR FILTER_NAME = L"Filtaa";
 
 
+//  FiltaaInputPin
+//
+FiltaaInputPin::FiltaaInputPin(Filtaa* filter)
+{
+    _refCount = 0;
+    _filter = filter;
+}
+
+// IUnknown methods
+STDMETHODIMP FiltaaInputPin::QueryInterface(REFIID iid, void** ppvObject)
+{
+    if (ppvObject == NULL) return E_POINTER;
+    if (iid == IID_IUnknown) {
+        *ppvObject = this;
+    } else if (iid == IID_IPin) {
+        *ppvObject = (IPin*)this;
+    } else if (iid == IID_IMemInputPin) {
+        *ppvObject = (IMemInputPin*)this;
+    } else {
+        *ppvObject = NULL;
+        return E_NOINTERFACE;
+    }
+
+    AddRef();
+    return S_OK;
+}
+
+
 // IEnumPins
 class FiltaaEnumPins : IEnumPins
 {
@@ -84,14 +112,18 @@ public:
     
 };
 
-
 //  Filtaa
 //
 Filtaa::Filtaa()
 {
+    _refCount = 0;
     _state = State_Stopped;
+    _clock = NULL;
+    _graph = NULL;
     _pIn = NULL;
     _pOut = NULL;
+    //_pIn = new FiltaaInputPin(this);
+    //_pOut = new FiltaaInputPin(this);
 }
 
 // IUnknown methods

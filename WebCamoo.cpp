@@ -86,15 +86,15 @@ static const int REGISTER_FILTERGRAPH = 1;
 // Adds a filter graph to the Running Object Table.
 static HRESULT AddGraphToRot(IUnknown* pUnkGraph, DWORD* pdwRegister) 
 {
-    IMoniker* pMoniker;
-    IRunningObjectTable* pROT;
     HRESULT hr;
 
     if (!pUnkGraph || !pdwRegister) return E_POINTER;
 
+    IRunningObjectTable* pROT = NULL;
     hr = GetRunningObjectTable(0, &pROT);
     if (SUCCEEDED(hr)) {
         WCHAR wsz[256];
+        IMoniker* pMoniker = NULL;
         hr = StringCchPrintfW(
             wsz, NUMELMS(wsz),
             L"FilterGraph %08x pid %08x\0",
@@ -125,9 +125,11 @@ static HRESULT AddGraphToRot(IUnknown* pUnkGraph, DWORD* pdwRegister)
 // Removes a filter graph from the Running Object Table.
 static void RemoveGraphFromRot(DWORD pdwRegister)
 {
-    IRunningObjectTable* pROT;
-
-    if (SUCCEEDED(GetRunningObjectTable(0, &pROT))) {
+    HRESULT hr;
+    
+    IRunningObjectTable* pROT = NULL;
+    hr = GetRunningObjectTable(0, &pROT);
+    if (SUCCEEDED(hr)) {
         pROT->Revoke(pdwRegister);
         pROT->Release();
     }
@@ -213,18 +215,19 @@ class WebCamoo
     ICaptureGraphBuilder2* _pCapture;
     DWORD _dwGraphRegister;
 
-    HWND _hWnd;
-    HMENU _deviceMenu;
-    Filtaa* _pFiltaa;
     IBaseFilter* _pVideoSrc;
     IBaseFilter* _pAudioSrc;
     IBaseFilter* _pVideoSink;
     IBaseFilter* _pAudioSink;
+    Filtaa* _pFiltaa;
 
     IVideoWindow* _pVW;
     IMediaEventEx* _pME;
     PLAYSTATE _psCurrent;
 
+    HWND _hWnd;
+    HMENU _deviceMenu;
+    
     void UpdateDeviceMenu();
     HRESULT CleanupFilterGraph();
     HRESULT UpdateFilterGraph();
@@ -262,6 +265,9 @@ WebCamoo::WebCamoo()
     _pVW = NULL;
     _pME = NULL;
     _psCurrent = Stopped;
+
+    _hWnd = NULL;
+    _deviceMenu = NULL;
 
     // Create the filter graph.
     hr = CoCreateInstance(
@@ -403,8 +409,8 @@ HRESULT WebCamoo::UpdateFilterGraph()
             IBaseFilter* pFilter = NULL;
             hr = _pFiltaa->QueryInterface(IID_IBaseFilter, (void**)&pFilter);
             if (SUCCEEDED(hr)) {
-                //hr = _pGraph->AddFilter(pFilter, L"Filtaa");
-                //if (FAILED(hr)) return hr;
+                hr = _pGraph->AddFilter(pFilter, L"Filtaa");
+                if (FAILED(hr)) return hr;
                 pFilter->Release();
             }
         }
