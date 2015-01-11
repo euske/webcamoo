@@ -6,6 +6,11 @@
 
 #include "WebCamoo.h"
 
+class FiltaaInputPin : IPin, IMemInputPin
+{
+    
+};
+
 class Filtaa : IBaseFilter
 {
 private:
@@ -13,6 +18,8 @@ private:
     FILTER_STATE _state;
     IReferenceClock* _clock;
     IFilterGraph* _graph;
+    FiltaaInputPin* _pIn;
+    FiltaaInputPin* _pOut;
 
 public:
     Filtaa();
