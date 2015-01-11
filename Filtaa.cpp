@@ -37,7 +37,7 @@ STDMETHODIMP Filtaa::EnumPins(IEnumPins** ppEnum)
     fwprintf(stderr, L"EnumPins!\n");
     if (ppEnum == NULL) return E_POINTER;
     *ppEnum = NULL;
-    return S_OK;
+    return E_FAIL;
 }
 
 STDMETHODIMP Filtaa::FindPin(LPCWSTR Id, IPin** ppPin)
@@ -45,13 +45,13 @@ STDMETHODIMP Filtaa::FindPin(LPCWSTR Id, IPin** ppPin)
     fwprintf(stderr, L"FindPin: Id=%s\n", Id);
     if (ppPin == NULL) return E_POINTER;
     *ppPin = NULL;
-    return S_OK;
+    return E_FAIL;
 }
 
 STDMETHODIMP Filtaa::QueryFilterInfo(FILTER_INFO* pInfo)
 {
     if (pInfo == NULL) return E_POINTER;
-    fwprintf(stderr, L"QueryFilterInfo!\n");
+    fwprintf(stderr, L"QueryFilterInfo\n");
     ZeroMemory(pInfo, sizeof(*pInfo));
     pInfo->pGraph = _graph;
     StringCbCopy(pInfo->achName, sizeof(pInfo->achName), FILTER_NAME);
