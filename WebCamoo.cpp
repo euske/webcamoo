@@ -260,7 +260,6 @@ WebCamoo::WebCamoo()
     _pVideoSink = NULL;
     _pAudioSink = NULL;
     _pFiltaa = new Filtaa();
-    _pFiltaa->AddRef();
     
     _pVW = NULL;
     _pME = NULL;
@@ -409,7 +408,7 @@ HRESULT WebCamoo::UpdateFilterGraph()
             IBaseFilter* pFilter = NULL;
             hr = _pFiltaa->QueryInterface(IID_IBaseFilter, (void**)&pFilter);
             if (SUCCEEDED(hr)) {
-                hr = _pGraph->AddFilter(pFilter, L"Filtaa");
+                //hr = _pGraph->AddFilter(pFilter, L"Filtaa");
                 if (FAILED(hr)) return hr;
                 pFilter->Release();
             }
@@ -495,10 +494,12 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo)
     if (pVideo != NULL) {
         _pVideoSrc = pVideo;
         //_pVideoSrc->AddRef(); // already done.
-
-        hr = UpdateFilterGraph();
-        if (FAILED(hr)) return hr;
+    }
+    
+    hr = UpdateFilterGraph();
+    if (FAILED(hr)) return hr;
         
+    if (_pVideoSrc != NULL) {
         // Obtain interfaces for media control and Video Window.
         hr = _pVideoSink->QueryInterface(
             IID_IVideoWindow, (void**)&_pVW);
@@ -519,10 +520,10 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo)
         // Make the video window visible, now that it is properly positioned.
         hr = _pVW->put_Visible(OATRUE);
         if (FAILED(hr)) return hr;
-
-        hr = UpdatePreviewState(TRUE);
-        if (FAILED(hr)) return hr;
     }
+
+    hr = UpdatePreviewState(TRUE);
+    if (FAILED(hr)) return hr;
 
     return hr;
 }
@@ -548,13 +549,13 @@ HRESULT WebCamoo::AttachAudio(IBaseFilter* pAudio)
     if (pAudio != NULL) {
         _pAudioSrc = pAudio;
         //_pAudioSrc->AddRef(); // already done.
-
-        hr = UpdateFilterGraph();
-        if (FAILED(hr)) return hr;
-        
-        hr = UpdatePreviewState(TRUE);
-        if (FAILED(hr)) return hr;
     }
+    
+    hr = UpdateFilterGraph();
+    if (FAILED(hr)) return hr;
+    
+    hr = UpdatePreviewState(TRUE);
+    if (FAILED(hr)) return hr;
     
     return hr;
 }
