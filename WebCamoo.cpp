@@ -408,7 +408,7 @@ HRESULT WebCamoo::UpdateFilterGraph()
             IBaseFilter* pFilter = NULL;
             hr = _pFiltaa->QueryInterface(IID_IBaseFilter, (void**)&pFilter);
             if (SUCCEEDED(hr)) {
-                //hr = _pGraph->AddFilter(pFilter, L"Filtaa");
+                hr = _pGraph->AddFilter(pFilter, L"Filtaa");
                 if (FAILED(hr)) return hr;
                 pFilter->Release();
             }

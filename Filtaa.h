@@ -17,6 +17,7 @@ private:
     IFilterGraph* _graph;
     FiltaaInputPin* _pIn;
     FiltaaInputPin* _pOut;
+    ~Filtaa();
 
 public:
     Filtaa();
@@ -71,10 +72,9 @@ public:
     }
 
     // IBaseFilter methods
-    STDMETHODIMP JoinFilterGraph(IFilterGraph* pGraph, LPCWSTR pName)
-        { _graph = pGraph; return S_OK; }
     STDMETHODIMP QueryVendorInfo(LPWSTR* pVendorInfo)
         { return E_NOTIMPL; }
+    STDMETHODIMP JoinFilterGraph(IFilterGraph* pGraph, LPCWSTR pName);
     STDMETHODIMP EnumPins(IEnumPins** ppEnum);
     STDMETHODIMP FindPin(LPCWSTR Id, IPin** ppPin);
     STDMETHODIMP QueryFilterInfo(FILTER_INFO* pInfo);
