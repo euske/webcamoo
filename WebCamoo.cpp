@@ -483,6 +483,10 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo)
 
     CleanupFilterGraph();
 
+    if (pVideo != NULL) {
+        pVideo->AddRef();
+    }
+
     if (_pVideoSrc != NULL) {
         _pVideoSrc->Release();
         _pVideoSrc = NULL;
@@ -490,7 +494,7 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo)
     
     if (pVideo != NULL) {
         _pVideoSrc = pVideo;
-        _pVideoSrc->AddRef();
+        //_pVideoSrc->AddRef(); // already done.
 
         hr = UpdateFilterGraph();
         if (FAILED(hr)) return hr;
@@ -532,6 +536,10 @@ HRESULT WebCamoo::AttachAudio(IBaseFilter* pAudio)
         
     CleanupFilterGraph();
 
+    if (pAudio != NULL) {
+        pAudio->AddRef();
+    }
+
     if (_pAudioSrc != NULL) {
         _pAudioSrc->Release();
         _pAudioSrc = NULL;
@@ -539,7 +547,7 @@ HRESULT WebCamoo::AttachAudio(IBaseFilter* pAudio)
     
     if (pAudio != NULL) {
         _pAudioSrc = pAudio;
-        _pAudioSrc->AddRef();
+        //_pAudioSrc->AddRef(); // already done.
 
         hr = UpdateFilterGraph();
         if (FAILED(hr)) return hr;
