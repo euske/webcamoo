@@ -6,29 +6,7 @@
 
 #include "WebCamoo.h"
 
-class Filtaa;
-class FiltaaInputPin : IPin, IMemInputPin
-{
-private:
-    int _refCount;
-    Filtaa* _filter;
-    
-public:
-    FiltaaInputPin(Filtaa* filter);
-
-    // IUnknown methods
-    STDMETHODIMP QueryInterface(REFIID iid, void** ppvObject);
-    STDMETHODIMP_(ULONG) AddRef() {
-        _refCount++; return _refCount;
-    }
-    STDMETHODIMP_(ULONG) Release() {
-        _refCount--;
-        if (_refCount) return _refCount;
-        delete this;
-        return 0;
-    }
-
-};
+class FiltaaInputPin;
 
 class Filtaa : IBaseFilter
 {
@@ -79,12 +57,15 @@ public:
         return S_OK;
     }
     STDMETHODIMP SetSyncSource(IReferenceClock* pClock) {
+        if (pClock != NULL) {
+            pClock->AddRef();
+        }
         if (_clock != NULL) {
             _clock->Release();
         }
         _clock = pClock;
         if (_clock != NULL) {
-            _clock->AddRef();
+            //_clock->AddRef(); // already done.
         }
         return S_OK;
     }
