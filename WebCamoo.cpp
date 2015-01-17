@@ -233,7 +233,6 @@ class WebCamoo
     HRESULT UpdateFilterGraph();
     HRESULT UpdatePreviewState(BOOL running);
     
-    void DoCommand(UINT cmd);
     void ResizeVideoWindow(void);
     HRESULT HandleGraphEvent(void);
 
@@ -242,6 +241,7 @@ public:
     ~WebCamoo();
 
     HRESULT Initialize(HWND hWnd);
+    void DoCommand(UINT cmd);
     void Uninitialize(void);
     void HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     HRESULT AttachVideo(IBaseFilter* pVideo);
@@ -404,7 +404,7 @@ HRESULT WebCamoo::UpdateFilterGraph()
         if (FAILED(hr)) return hr;
         hr = _pGraph->AddFilter(_pVideoSink, L"VideoSink");
         if (FAILED(hr)) return hr;
-        {
+        if (_pFiltaa != NULL) {
             IBaseFilter* pFilter = NULL;
             hr = _pFiltaa->QueryInterface(IID_IBaseFilter, (void**)&pFilter);
             if (SUCCEEDED(hr)) {
@@ -818,6 +818,8 @@ int WebCamooMain(
     // and immediately have useful video data to display.
     // Otherwise, it will be black until video data arrives.
     ShowWindow(hWnd, nCmdShow);
+
+    app->DoCommand(IDM_DEVICE_VIDEO_START);
 
     // Main message loop.
     MSG msg;

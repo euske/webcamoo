@@ -30,6 +30,7 @@ static HRESULT freeMediaType(AM_MEDIA_TYPE* mt)
 static LPCWSTR mt2str(const AM_MEDIA_TYPE* pmt)
 {
     static WCHAR buf[256];
+    if (pmt == NULL) return L"<null>";
     swprintf_s(buf, _countof(buf),
                L"<major=%08x, sub=%08x, size=%lu, format=%08x>",
                pmt->majortype.Data1, pmt->subtype.Data1,
@@ -39,7 +40,7 @@ static LPCWSTR mt2str(const AM_MEDIA_TYPE* pmt)
 
 
 // FiltaaInputPinEnumMediaTypes
-class FiltaaInputPinEnumMediaTypes : IEnumMediaTypes
+class FiltaaInputPinEnumMediaTypes : public IEnumMediaTypes
 {
 private:
     int _refCount;
@@ -120,7 +121,7 @@ public:
 
 //  FiltaaInputPin
 //
-class FiltaaInputPin : IPin, IMemInputPin
+class FiltaaInputPin : public IPin, public IMemInputPin
 {
 private:
     int _refCount;
@@ -201,6 +202,14 @@ FiltaaInputPin::FiltaaInputPin(Filtaa* filter, LPCWSTR name, PIN_DIRECTION direc
 FiltaaInputPin::~FiltaaInputPin()
 {
     fwprintf(stderr, L"~InputPin\n");
+    if (_connected != NULL) {
+        _connected->Release();
+        _connected = NULL;
+    }
+    if (_allocator != NULL) {
+        _allocator->Release();
+        _allocator = NULL;
+    }
 }
 
 // IUnknown methods
@@ -225,25 +234,28 @@ STDMETHODIMP FiltaaInputPin::QueryInterface(REFIID iid, void** ppvObject)
 // IPin methods
 STDMETHODIMP FiltaaInputPin::EnumMediaTypes(IEnumMediaTypes** ppEnum)
 {
-    fwprintf(stderr, L"InputPin.EnumMediaTypes\n");
     if (ppEnum == NULL) return E_POINTER;
     if (_connected == NULL) return VFW_E_NOT_CONNECTED;
+
+    fwprintf(stderr, L"InputPin.EnumMediaTypes\n");
     *ppEnum = (IEnumMediaTypes*) new FiltaaInputPinEnumMediaTypes();
     return S_OK;
 }
 
 STDMETHODIMP FiltaaInputPin::Connect(IPin* pReceivePin, const AM_MEDIA_TYPE* pmt)
 {
-    fwprintf(stderr, L"InputPin.Connect: pin=%p, mt=%s\n", pReceivePin, mt2str(pmt));
     // XXX
     HRESULT hr;
-    if (pReceivePin == NULL) return E_POINTER;
+    if (pReceivePin == NULL || pmt == NULL) return E_POINTER;
     if (_connected != NULL) return VFW_E_ALREADY_CONNECTED;
+    
+    fwprintf(stderr, L"InputPin.Connect: pin=%p, mt=%s\n", pReceivePin, mt2str(pmt));
     
     hr = pReceivePin->ReceiveConnection((IPin*)this, pmt);
     if (FAILED(hr)) return hr;
     
     hr = copyMediaType(&_mediatype, pmt);
+    // assert(_connected == NULL);
     if (SUCCEEDED(hr)) {
         _connected = pReceivePin;
         _connected->AddRef();
@@ -254,29 +266,29 @@ STDMETHODIMP FiltaaInputPin::Connect(IPin* pReceivePin, const AM_MEDIA_TYPE* pmt
 
 STDMETHODIMP FiltaaInputPin::ReceiveConnection(IPin* pConnector, const AM_MEDIA_TYPE* pmt)
 {
-    fwprintf(stderr, L"InputPin.Connect: pin=%p, mt=%s\n", pConnector, mt2str(pmt));
     // XXX
-    if (pConnector == NULL) return E_POINTER;
+    if (pConnector == NULL || pmt == NULL) return E_POINTER;
     if (_connected != NULL) return VFW_E_ALREADY_CONNECTED;
+    fwprintf(stderr, L"InputPin.ReceiveConnection: pin=%p, mt=%s\n", pConnector, mt2str(pmt));
     return S_OK;
 }
 
 STDMETHODIMP FiltaaInputPin::ConnectedTo(IPin** ppPin)
 {
-    fwprintf(stderr, L"InputPin.ConnectedTo: %p\n", _connected);
     if (ppPin == NULL) return E_POINTER;
-    if (_connected == NULL) return VFW_E_NOT_CONNECTED;
+    fwprintf(stderr, L"InputPin.ConnectedTo: %p\n", _connected);
     *ppPin = _connected;
+    if (_connected == NULL) return VFW_E_NOT_CONNECTED;
     (*ppPin)->AddRef();
     return S_OK;
 }
 
 STDMETHODIMP FiltaaInputPin::ConnectionMediaType(AM_MEDIA_TYPE* pmt)
 {
-    fwprintf(stderr, L"InputPin.ConnectionMediaType\n");
     // XXX
     if (pmt == NULL) return E_POINTER;
     if (_connected == NULL) return VFW_E_NOT_CONNECTED;
+    fwprintf(stderr, L"InputPin.ConnectionMediaType\n");
     return copyMediaType(pmt, &_mediatype);
 }
 
@@ -291,9 +303,9 @@ STDMETHODIMP FiltaaInputPin::Disconnect()
 
 STDMETHODIMP FiltaaInputPin::QueryId(LPWSTR* Id)
 {
-    fwprintf(stderr, L"InputPin.QueryId\n");
     HRESULT hr;
     if (Id == NULL) return E_POINTER;
+    fwprintf(stderr, L"InputPin.QueryId\n");
     LPWSTR dst = (LPWSTR)CoTaskMemAlloc(sizeof(WCHAR)*(lstrlen(_name)+1));
     if (dst == NULL) return E_OUTOFMEMORY;
     lstrcpy(dst, _name);
@@ -310,16 +322,16 @@ STDMETHODIMP FiltaaInputPin::QueryAccept(const AM_MEDIA_TYPE* pmt)
 
 STDMETHODIMP FiltaaInputPin::QueryDirection(PIN_DIRECTION* pPinDir)
 {
-    fwprintf(stderr, L"InputPin.QueryDirection\n");
     if (pPinDir == NULL) return E_POINTER;
+    fwprintf(stderr, L"InputPin.QueryDirection\n");
     *pPinDir = _direction;
     return S_OK;
 }
 
 STDMETHODIMP FiltaaInputPin::QueryPinInfo(PIN_INFO* pInfo)
 {
-    fwprintf(stderr, L"InputPin.QueryPinInfo: %p\n", this);
     if (pInfo == NULL) return E_POINTER;
+    fwprintf(stderr, L"InputPin.QueryPinInfo: %p\n", this);
     ZeroMemory(pInfo, sizeof(*pInfo));
     pInfo->pFilter = (IBaseFilter*)_filter;
     if (pInfo->pFilter != NULL) {
@@ -334,8 +346,8 @@ STDMETHODIMP FiltaaInputPin::QueryPinInfo(PIN_INFO* pInfo)
 // IMemInputPin methods
 STDMETHODIMP FiltaaInputPin::GetAllocator(IMemAllocator** ppAllocator)
 {
-    fwprintf(stderr, L"InputPin.GetAllocator\n");
     if (ppAllocator == NULL) return E_POINTER;
+    fwprintf(stderr, L"InputPin.GetAllocator\n");
     return CoCreateInstance(
         CLSID_MemoryAllocator, 0, CLSCTX_INPROC_SERVER,
         IID_IMemAllocator, (void**)ppAllocator);
@@ -343,12 +355,13 @@ STDMETHODIMP FiltaaInputPin::GetAllocator(IMemAllocator** ppAllocator)
 
 STDMETHODIMP FiltaaInputPin::NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly)
 {
-    fwprintf(stderr, L"InputPin.NotifyAllocator: readonly=%d\n", bReadOnly);
     if (pAllocator == NULL) return E_POINTER;
+    fwprintf(stderr, L"InputPin.NotifyAllocator: readonly=%d\n", bReadOnly);
     if (bReadOnly) return E_FAIL;
     pAllocator->AddRef();
     if (_allocator != NULL) {
         _allocator->Release();
+        _allocator = NULL;
     }
     _allocator = pAllocator;
     return S_OK;
@@ -356,9 +369,9 @@ STDMETHODIMP FiltaaInputPin::NotifyAllocator(IMemAllocator* pAllocator, BOOL bRe
 
 STDMETHODIMP FiltaaInputPin::Receive(IMediaSample* pSample)
 {
-    fwprintf(stderr, L"InputPin.Receive: %p\n", pSample);
     // XXX
     if (pSample == NULL) return E_POINTER;
+    fwprintf(stderr, L"InputPin.Receive: %p\n", pSample);
     return S_OK;
 }
     
@@ -384,7 +397,7 @@ STDMETHODIMP FiltaaInputPin::ReceiveMultiple(
 
 
 // IEnumPins
-class FiltaaEnumPins : IEnumPins
+class FiltaaEnumPins : public IEnumPins
 {
 private:
     int _refCount;
@@ -461,6 +474,7 @@ public:
     }
     
 };
+
 
 //  Filtaa
 //
