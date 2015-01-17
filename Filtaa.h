@@ -44,11 +44,11 @@ public:
         *pState = _state; return S_OK;
     }
     STDMETHODIMP Run(REFERENCE_TIME tStart)
-        { _state = State_Running; return S_OK; }
+        { fprintf(stderr,"Run\n"); _state = State_Running; return S_OK; }
     STDMETHODIMP Pause()
-        { _state = State_Paused; return S_OK; }
+        { fprintf(stderr,"Pause\n"); _state = State_Paused; return S_OK; }
     STDMETHODIMP Stop()
-        { _state = State_Stopped; return S_OK; }
+        { fprintf(stderr,"Stop\n"); _state = State_Stopped; return S_OK; }
     STDMETHODIMP GetSyncSource(IReferenceClock** ppClock) {
         if (ppClock == NULL) return E_POINTER;
         if (_clock != NULL) {

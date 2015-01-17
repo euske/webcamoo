@@ -17,6 +17,16 @@ static HRESULT copyMediaType(AM_MEDIA_TYPE* dst, const AM_MEDIA_TYPE* src)
     return S_OK;
 }
 
+static HRESULT freeMediaType(AM_MEDIA_TYPE* mt)
+{
+    if (mt == NULL) return E_POINTER;
+    if (mt->pbFormat != NULL) {
+        CoTaskMemFree(mt->pbFormat);
+    }
+    CoTaskMemFree(mt);
+    return S_OK;
+}
+
 static LPCWSTR mt2str(const AM_MEDIA_TYPE* pmt)
 {
     static WCHAR buf[256];
@@ -33,11 +43,20 @@ class FiltaaInputPinEnumMediaTypes : IEnumMediaTypes
 {
 private:
     int _refCount;
+    AM_MEDIA_TYPE _mts[1];
+    int _nmts;
     int _index;
 
 public:
     FiltaaInputPinEnumMediaTypes(int index=0) {
         _refCount = 0;
+        ZeroMemory(_mts, sizeof(_mts));
+        _mts[0].majortype = MEDIATYPE_Video;
+        _mts[0].subtype = MEDIASUBTYPE_RGB24;
+        _mts[0].bFixedSizeSamples = TRUE;
+        _mts[0].bTemporalCompression = FALSE;
+        _mts[0].formattype = FORMAT_VideoInfo;
+        _nmts = 0;
         _index = index;
         AddRef();
     }
@@ -69,22 +88,10 @@ public:
     // IEnumMediaTypes
     STDMETHODIMP Next(ULONG n, AM_MEDIA_TYPE** ppMediaTypes, ULONG* pFetched) {
         if (ppMediaTypes == NULL) return E_POINTER;
+        if (n == 0) return E_INVALIDARG;
         ULONG i = 0;
-        while (i < n && _index < 1) {
-            AM_MEDIA_TYPE* pMediaType = ppMediaTypes[i++];
-            VIDEOINFOHEADER* fmt = (VIDEOINFOHEADER*)CoTaskMemAlloc(sizeof(VIDEOINFOHEADER));
-            if (fmt == NULL) return E_OUTOFMEMORY;
-            pMediaType->majortype = MEDIATYPE_Video;
-            pMediaType->subtype = MEDIASUBTYPE_RGB24;
-            pMediaType->bFixedSizeSamples = TRUE;
-            pMediaType->bTemporalCompression = FALSE;
-            pMediaType->lSampleSize = 0;
-            pMediaType->formattype = FORMAT_VideoInfo;            
-            pMediaType->cbFormat = sizeof(*fmt);
-            pMediaType->pbFormat = (BYTE*)fmt;
-            ZeroMemory(fmt, sizeof(*fmt));
-            fmt->bmiHeader.biSize = sizeof(*fmt);
-            _index++;
+        while (i < n && _index < _nmts) {
+            ppMediaTypes[i++] = &(_mts[_index++]);
         }
         if (pFetched != NULL) {
             *pFetched = i;
@@ -145,13 +152,13 @@ public:
 
     // IPin methods
     STDMETHODIMP BeginFlush()
-        { return S_OK; }
+        { fprintf(stderr,"BeginFlush\n"); return S_OK; }
     STDMETHODIMP EndFlush()
-        { return S_OK; }
+        { fprintf(stderr,"EndFlush\n"); return S_OK; }
     STDMETHODIMP EndOfStream()
-        { return S_OK; }
+        { fprintf(stderr,"EndOfStream\n"); return S_OK; }
     STDMETHODIMP NewSegment(REFERENCE_TIME , REFERENCE_TIME , double )
-        { return S_OK; }
+        { fprintf(stderr,"NewSegment\n"); return S_OK; }
     
     STDMETHODIMP Connect(IPin* pReceivePin, const AM_MEDIA_TYPE* pmt);
     STDMETHODIMP ConnectedTo(IPin** ppPin);
@@ -220,6 +227,7 @@ STDMETHODIMP FiltaaInputPin::EnumMediaTypes(IEnumMediaTypes** ppEnum)
 {
     fwprintf(stderr, L"InputPin.EnumMediaTypes\n");
     if (ppEnum == NULL) return E_POINTER;
+    if (_connected == NULL) return VFW_E_NOT_CONNECTED;
     *ppEnum = (IEnumMediaTypes*) new FiltaaInputPinEnumMediaTypes();
     return S_OK;
 }
@@ -255,6 +263,7 @@ STDMETHODIMP FiltaaInputPin::ReceiveConnection(IPin* pConnector, const AM_MEDIA_
 
 STDMETHODIMP FiltaaInputPin::ConnectedTo(IPin** ppPin)
 {
+    fwprintf(stderr, L"InputPin.ConnectedTo: %p\n", _connected);
     if (ppPin == NULL) return E_POINTER;
     if (_connected == NULL) return VFW_E_NOT_CONNECTED;
     *ppPin = _connected;
@@ -264,6 +273,7 @@ STDMETHODIMP FiltaaInputPin::ConnectedTo(IPin** ppPin)
 
 STDMETHODIMP FiltaaInputPin::ConnectionMediaType(AM_MEDIA_TYPE* pmt)
 {
+    fwprintf(stderr, L"InputPin.ConnectionMediaType\n");
     // XXX
     if (pmt == NULL) return E_POINTER;
     if (_connected == NULL) return VFW_E_NOT_CONNECTED;
@@ -281,6 +291,7 @@ STDMETHODIMP FiltaaInputPin::Disconnect()
 
 STDMETHODIMP FiltaaInputPin::QueryId(LPWSTR* Id)
 {
+    fwprintf(stderr, L"InputPin.QueryId\n");
     HRESULT hr;
     if (Id == NULL) return E_POINTER;
     LPWSTR dst = (LPWSTR)CoTaskMemAlloc(sizeof(WCHAR)*(lstrlen(_name)+1));
@@ -299,6 +310,7 @@ STDMETHODIMP FiltaaInputPin::QueryAccept(const AM_MEDIA_TYPE* pmt)
 
 STDMETHODIMP FiltaaInputPin::QueryDirection(PIN_DIRECTION* pPinDir)
 {
+    fwprintf(stderr, L"InputPin.QueryDirection\n");
     if (pPinDir == NULL) return E_POINTER;
     *pPinDir = _direction;
     return S_OK;
@@ -306,10 +318,13 @@ STDMETHODIMP FiltaaInputPin::QueryDirection(PIN_DIRECTION* pPinDir)
 
 STDMETHODIMP FiltaaInputPin::QueryPinInfo(PIN_INFO* pInfo)
 {
-    fwprintf(stderr, L"InputPin.QueryPinInfo\n");
+    fwprintf(stderr, L"InputPin.QueryPinInfo: %p\n", this);
     if (pInfo == NULL) return E_POINTER;
+    ZeroMemory(pInfo, sizeof(*pInfo));
     pInfo->pFilter = (IBaseFilter*)_filter;
-    pInfo->pFilter->AddRef();
+    if (pInfo->pFilter != NULL) {
+        pInfo->pFilter->AddRef();
+    }
     pInfo->dir = _direction;
     swprintf_s(pInfo->achName, _countof(pInfo->achName),
                L"FiltaaInputPin_%s_%p", _name, this);
@@ -374,7 +389,7 @@ class FiltaaEnumPins : IEnumPins
 private:
     int _refCount;
     IPin* _pins[2];
-    int _maxIndex;
+    int _npins;
     int _index;
 
 public:
@@ -382,7 +397,7 @@ public:
         _refCount = 0;
         _pins[0] = pIn;
         _pins[1] = pOut;
-        _maxIndex = 2;
+        _npins = 2;
         _index = index;
         AddRef();
     }
@@ -414,12 +429,12 @@ public:
     // IEnumPins
     STDMETHODIMP Next(ULONG n, IPin** ppPins, ULONG* pFetched) {
         if (ppPins == NULL) return E_POINTER;
+        if (n == 0) return E_INVALIDARG;
         ULONG i = 0;
-        while (i < n && _index < _maxIndex) {
-            IPin* pin = _pins[_index++];
-            fwprintf(stderr, L"EnumPins.Next: %p (%d)\n", pin, _index-1);
+        while (i < n && _index < _npins) {
+            fwprintf(stderr, L"EnumPins.Next: %p (%d)\n", _pins[_index], _index);
+            IPin* pin = (ppPins[i++] = _pins[_index++]);
             pin->AddRef();
-            ppPins[i++] = pin;
         }
         if (pFetched != NULL) {
             *pFetched = i;
@@ -427,13 +442,15 @@ public:
         return (i < n)? S_FALSE : S_OK;
     }
     STDMETHODIMP Skip(ULONG n) {
+        fwprintf(stderr, L"EnumPins.Skip(%u)\n", n);
         while (0 < n--) {
-            if (_maxIndex <= _index) return S_FALSE;
+            if (_npins <= _index) return S_FALSE;
             _index++;
         }
         return S_OK;
     }
     STDMETHODIMP Reset(void) {
+        fwprintf(stderr, L"EnumPins.Reset\n");
         _index = 0;
         return S_OK;
     }
@@ -463,8 +480,6 @@ Filtaa::~Filtaa()
     _pIn->Release();
     _pOut->Release();
 }
-
-static const LPCWSTR FILTER_NAME = L"Filtaa";
 
 // IUnknown methods
 STDMETHODIMP Filtaa::QueryInterface(REFIID iid, void** ppvObject)
@@ -503,7 +518,7 @@ STDMETHODIMP Filtaa::JoinFilterGraph(IFilterGraph* pGraph, LPCWSTR pName)
 
 STDMETHODIMP Filtaa::EnumPins(IEnumPins** ppEnum)
 {
-    fwprintf(stderr, L"Filtaa.EnumPins\n");
+    fwprintf(stderr, L"Filtaa.EnumPins: %p\n", ppEnum);
     if (ppEnum == NULL) return E_POINTER;
     *ppEnum = (IEnumPins*) new FiltaaEnumPins((IPin*)_pIn, (IPin*)_pOut);
     return S_OK;
@@ -533,9 +548,10 @@ STDMETHODIMP Filtaa::QueryFilterInfo(FILTER_INFO* pInfo)
     if (pInfo == NULL) return E_POINTER;
     ZeroMemory(pInfo, sizeof(*pInfo));
     pInfo->pGraph = _graph;
-    StringCbCopy(pInfo->achName, sizeof(pInfo->achName), FILTER_NAME);
     if (pInfo->pGraph != NULL) {
         pInfo->pGraph->AddRef();
     }
+    StringCchCopy(pInfo->achName, _countof(pInfo->achName),
+                  L"Filtaa");
     return S_OK;
 }

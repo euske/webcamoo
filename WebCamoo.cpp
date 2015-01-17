@@ -368,13 +368,13 @@ HRESULT WebCamoo::CleanupFilterGraph()
     HRESULT hr;
     alert(L"CleanupFilterGraph");
 
-    // Remove every filter except Soruce/Sink.
-    BOOL changed = TRUE;
-    while (changed) {
-        IEnumFilters* pEnum = NULL;
-        hr = _pGraph->EnumFilters(&pEnum);
-        changed = FALSE;
-        if (SUCCEEDED(hr)) {
+    IEnumFilters* pEnum = NULL;
+    hr = _pGraph->EnumFilters(&pEnum);
+    if (SUCCEEDED(hr)) {
+        // Remove every filter except Soruce/Sink.
+        BOOL changed = TRUE;
+        while (changed && SUCCEEDED(pEnum->Reset())) {
+            changed = FALSE;
             IBaseFilter* pFilter = NULL;
             while (pEnum->Next(1, &pFilter, NULL) == S_OK) {
                 hr = _pGraph->RemoveFilter(pFilter);
@@ -384,8 +384,8 @@ HRESULT WebCamoo::CleanupFilterGraph()
                 }
                 pFilter->Release();
             }
-            pEnum->Release();
         }
+        pEnum->Release();
     }
 
     return hr;
