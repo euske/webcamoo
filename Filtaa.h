@@ -12,11 +12,15 @@ class Filtaa : IBaseFilter
 {
 private:
     int _refCount;
+    LPCWSTR _name;
     FILTER_STATE _state;
     IReferenceClock* _clock;
     IFilterGraph* _graph;
     FiltaaInputPin* _pIn;
     FiltaaInputPin* _pOut;
+    AM_MEDIA_TYPE _mediatype;
+    BOOL _flushing;
+    
     ~Filtaa();
 
 public:
@@ -49,27 +53,9 @@ public:
         { fprintf(stderr,"Pause\n"); _state = State_Paused; return S_OK; }
     STDMETHODIMP Stop()
         { fprintf(stderr,"Stop\n"); _state = State_Stopped; return S_OK; }
-    STDMETHODIMP GetSyncSource(IReferenceClock** ppClock) {
-        if (ppClock == NULL) return E_POINTER;
-        if (_clock != NULL) {
-            _clock->AddRef();
-        }
-        (*ppClock) = _clock;
-        return S_OK;
-    }
-    STDMETHODIMP SetSyncSource(IReferenceClock* pClock) {
-        if (pClock != NULL) {
-            pClock->AddRef();
-        }
-        if (_clock != NULL) {
-            _clock->Release();
-        }
-        _clock = pClock;
-        if (_clock != NULL) {
-            //_clock->AddRef(); // already done.
-        }
-        return S_OK;
-    }
+
+    STDMETHODIMP GetSyncSource(IReferenceClock** ppClock);
+    STDMETHODIMP SetSyncSource(IReferenceClock* pClock);
 
     // IBaseFilter methods
     STDMETHODIMP QueryVendorInfo(LPWSTR* pVendorInfo)
@@ -78,5 +64,13 @@ public:
     STDMETHODIMP EnumPins(IEnumPins** ppEnum);
     STDMETHODIMP FindPin(LPCWSTR Id, IPin** ppPin);
     STDMETHODIMP QueryFilterInfo(FILTER_INFO* pInfo);
-    
+
+    // Others
+    const AM_MEDIA_TYPE* GetMediaType();
+    HRESULT Connect(const AM_MEDIA_TYPE* mt);
+    HRESULT ReceiveConnection(const AM_MEDIA_TYPE* mt);
+    HRESULT BeginFlush();
+    HRESULT EndFlush();
+    HRESULT EndOfStream();
+    HRESULT NewSegment(REFERENCE_TIME tStart, REFERENCE_TIME tStop, double dRate);
 };

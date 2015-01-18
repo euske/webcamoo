@@ -48,29 +48,18 @@ const UINT IDM_DEVICE_AUDIO_NONE = 20000;
 const UINT IDM_DEVICE_AUDIO_START = 20001;
 const UINT IDM_DEVICE_AUDIO_END = 29999;
 
-
-// alert
-static void alert(LPCWSTR szFormat, ...)
+static FILE* logfp = NULL;      // logging
+static void log(LPCWSTR fmt, ...)
 {
-    WCHAR szBuffer[1024];  // Large buffer for long filenames or URLs.
-    const size_t NUMCHARS = sizeof(szBuffer) / sizeof(szBuffer[0]);
-
-    // Format the input string
-    va_list pArgs;
-    va_start(pArgs, szFormat);
-
-    // Use a bounded buffer size to prevent buffer overruns.  Limit count to
-    // character size minus one to allow for a NULL terminating character.
-    (void)StringCchVPrintf(szBuffer, NUMCHARS-1, szFormat, pArgs);
-    va_end(pArgs);
-    // Ensure that the formatted string is NULL-terminated.
-    szBuffer[NUMCHARS-1] = L'\0';
-    
-#ifdef WINDOWS
-    MessageBox(NULL, szBuffer, L"WebCamoo Message", MB_OK | MB_ICONERROR);
-#else
-    fwprintf(stderr, L"%s\n", szBuffer);
-#endif
+    if (logfp == NULL) return;
+    WCHAR buf[1024];
+    va_list args;
+    va_start(args, fmt);
+    StringCchVPrintf(buf, _countof(buf)-1, fmt, args);
+    va_end(args);
+    buf[1023] = L'\0';
+    fwprintf(logfp, L"%s\n", buf);
+    fflush(logfp);
 }
 
 
@@ -346,7 +335,7 @@ WebCamoo::~WebCamoo()
 // UpdateDeviceMenu
 void WebCamoo::UpdateDeviceMenu()
 {
-    alert(L"UpdateDeviceMenu");
+    log(L"UpdateDeviceMenu");
     
     ResetCaptureDevices(_deviceMenu);
     AppendMenu(_deviceMenu, MF_STRING | MF_DISABLED, 0, L"Video Devices");
@@ -366,7 +355,7 @@ void WebCamoo::UpdateDeviceMenu()
 HRESULT WebCamoo::CleanupFilterGraph()
 {
     HRESULT hr;
-    alert(L"CleanupFilterGraph");
+    log(L"CleanupFilterGraph");
 
     IEnumFilters* pEnum = NULL;
     hr = _pGraph->EnumFilters(&pEnum);
@@ -395,7 +384,7 @@ HRESULT WebCamoo::CleanupFilterGraph()
 HRESULT WebCamoo::UpdateFilterGraph()
 {
     HRESULT hr;
-    alert(L"UpdateFilterGraph");
+    log(L"UpdateFilterGraph");
     
     if (_pVideoSrc != NULL &&
         _pVideoSink != NULL) {
@@ -471,7 +460,7 @@ HRESULT WebCamoo::UpdatePreviewState(BOOL running)
 HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo)
 {
     HRESULT hr;
-    alert(L"AttachVideo: %p", pVideo);
+    log(L"AttachVideo: %p", pVideo);
 
     UpdatePreviewState(FALSE);
     
@@ -531,7 +520,7 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo)
 HRESULT WebCamoo::AttachAudio(IBaseFilter* pAudio)
 {
     HRESULT hr;
-    alert(L"AttachAudio: %p", pAudio);
+    log(L"AttachAudio: %p", pAudio);
 
     UpdatePreviewState(FALSE);
         
@@ -848,11 +837,15 @@ int PASCAL WinMain(
 {
     int argc;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+#ifdef DEBUG
+    _wfopen_s(&logfp, L"log.txt", L"a");
+#endif
     return WebCamooMain(hInstance, hPrevInstance, nCmdShow, argc, argv);
 }
 #else
 int wmain(int argc, wchar_t* argv[])
 {
+    logfp = stderr;
     return WebCamooMain(GetModuleHandle(NULL), NULL, SW_SHOWDEFAULT, argc, argv);
 }
 #endif
