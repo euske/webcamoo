@@ -19,7 +19,9 @@ private:
     FiltaaInputPin* _pIn;
     FiltaaInputPin* _pOut;
     AM_MEDIA_TYPE _mediatype;
+    IMemInputPin* _transport;
     IMemAllocator* _allocator;
+    BOOL _readonly;
     
     ~Filtaa();
 
@@ -67,7 +69,8 @@ public:
 
     // Others
     const AM_MEDIA_TYPE* GetMediaType();
-    HRESULT Connect(const AM_MEDIA_TYPE* mt);
+    HRESULT Connect(IPin* pReceivePin, const AM_MEDIA_TYPE* mt);
+    HRESULT Disconnect();
     HRESULT ReceiveConnection(const AM_MEDIA_TYPE* mt);
     HRESULT BeginFlush();
     HRESULT EndFlush();
