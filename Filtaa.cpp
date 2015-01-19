@@ -17,21 +17,22 @@ static HRESULT copyMediaType(AM_MEDIA_TYPE* dst, const AM_MEDIA_TYPE* src)
 {
     if (src == NULL) return E_POINTER;
     if (dst == NULL) return E_POINTER;
-    BYTE* fmt = (BYTE*)CoTaskMemAlloc(src->cbFormat);
-    if (fmt == NULL) return E_OUTOFMEMORY;
     CopyMemory(dst, src, sizeof(*src));
-    CopyMemory(fmt, src->pbFormat, src->cbFormat);
-    dst->pbFormat = fmt;
+    if (src->cbFormat) {
+        BYTE* fmt = (BYTE*)CoTaskMemAlloc(src->cbFormat);
+        if (fmt == NULL) return E_OUTOFMEMORY;
+        CopyMemory(fmt, src->pbFormat, src->cbFormat);
+        dst->pbFormat = fmt;
+    }
     return S_OK;
 }
 
-static HRESULT freeMediaType(AM_MEDIA_TYPE* mt)
+static HRESULT eraseMediaType(AM_MEDIA_TYPE* mt)
 {
     if (mt == NULL) return E_POINTER;
     if (mt->pbFormat != NULL) {
         CoTaskMemFree(mt->pbFormat);
     }
-    CoTaskMemFree(mt);
     return S_OK;
 }
 
@@ -162,7 +163,7 @@ private:
     int _index;
 
     ~FiltaaEnumMediaTypes() {
-        freeMediaType(&(_mts[0]));
+        eraseMediaType(&(_mts[0]));
     }
 
 public:
@@ -204,7 +205,7 @@ public:
         if (n == 0) return E_INVALIDARG;
         ULONG i = 0;
         while (i < n && _index < _nmts) {
-            fwprintf(stderr, L"EnumMediaTypes.Next: %p (%d)\n", _mts[_index], _index);
+            fwprintf(stderr, L"EnumMediaTypes.Next: %p (%d)\n", &(_mts[_index]), _index);
             AM_MEDIA_TYPE* mt = (AM_MEDIA_TYPE*)CoTaskMemAlloc(sizeof(AM_MEDIA_TYPE));
             if (mt == NULL) return E_OUTOFMEMORY;
             if (FAILED(copyMediaType(mt, &(_mts[_index++])))) return E_OUTOFMEMORY;
@@ -245,18 +246,16 @@ private:
     LPCWSTR _name;
     IPin* _connected;
     IMemInputPin* _transport;
-    IMemAllocator* _allocator;
+    BOOL _flushing;
     
     ~FiltaaInputPin();
     
 public:
     FiltaaInputPin(Filtaa* filter, LPCWSTR name, PIN_DIRECTION direction);
 
-    LPCWSTR Name()
-        { return _name; }
-
-    IPin* Connected()
-        { return _connected; }
+    LPCWSTR Name() { return _name; }
+    IPin* Connected() { return _connected; }
+    IMemInputPin* Transport() { return _transport; }
 
     // IUnknown methods
     STDMETHODIMP QueryInterface(REFIID iid, void** ppvObject);
@@ -273,10 +272,12 @@ public:
     // IPin methods
     STDMETHODIMP BeginFlush() {
         if (_direction != PINDIR_INPUT) return E_UNEXPECTED;
+        _flushing = TRUE;
         return _filter->BeginFlush();
     }
     STDMETHODIMP EndFlush() {
         if (_direction != PINDIR_INPUT) return E_UNEXPECTED;
+        _flushing = FALSE;
         return _filter->EndFlush();
     }
     STDMETHODIMP EndOfStream() {
@@ -302,11 +303,20 @@ public:
         { return E_NOTIMPL; }
 
     // IMemInputPin methods
-    STDMETHODIMP GetAllocator(IMemAllocator** ppAllocator);
     STDMETHODIMP GetAllocatorRequirements(ALLOCATOR_PROPERTIES* )
         { return E_NOTIMPL; }
-    STDMETHODIMP NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly);
-    STDMETHODIMP Receive(IMediaSample* pSample);
+    STDMETHODIMP GetAllocator(IMemAllocator** ppAllocator) {
+        if (_direction != PINDIR_INPUT) return E_UNEXPECTED;
+        return _filter->GetAllocator(ppAllocator);
+    }
+    STDMETHODIMP NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly) {
+        if (_direction != PINDIR_INPUT) return E_UNEXPECTED;
+        return _filter->NotifyAllocator(pAllocator, bReadOnly);
+    }        
+    STDMETHODIMP Receive(IMediaSample* pSample) {
+        if (_direction != PINDIR_INPUT) return E_UNEXPECTED;
+        return _filter->Receive(pSample);
+    }
     STDMETHODIMP ReceiveCanBlock()
         { return S_FALSE; }
     STDMETHODIMP ReceiveMultiple(IMediaSample** pSamples, long nSamples, long* nSamplesProcessed);
@@ -315,14 +325,14 @@ public:
 
 FiltaaInputPin::FiltaaInputPin(Filtaa* filter, LPCWSTR name, PIN_DIRECTION direction)
 {
-    fwprintf(stderr, L"InputPin(%s): direction=%d\n", name, direction);
+    fwprintf(stderr, L"InputPin(%p,%s): direction=%d\n", this, name, direction);
     _refCount = 0;
     _filter = filter;
     _name = name;
     _direction = direction;
     _connected = NULL;
     _transport = NULL;
-    _allocator = NULL;
+    _flushing = FALSE;
     AddRef();
 }
 
@@ -336,10 +346,6 @@ FiltaaInputPin::~FiltaaInputPin()
     if (_transport != NULL) {
         _transport->Release();
         _transport = NULL;
-    }
-    if (_allocator != NULL) {
-        _allocator->Release();
-        _allocator = NULL;
     }
 }
 
@@ -366,10 +372,11 @@ STDMETHODIMP FiltaaInputPin::QueryInterface(REFIID iid, void** ppvObject)
 STDMETHODIMP FiltaaInputPin::EnumMediaTypes(IEnumMediaTypes** ppEnum)
 {
     if (ppEnum == NULL) return E_POINTER;
-    if (_connected == NULL) return VFW_E_NOT_CONNECTED;
 
+    const AM_MEDIA_TYPE* mt = _filter->GetMediaType();
     fwprintf(stderr, L"InputPin(%s).EnumMediaTypes\n", _name);
-    *ppEnum = (IEnumMediaTypes*) new FiltaaEnumMediaTypes(_filter->GetMediaType());
+    if (mt == NULL) return VFW_E_NOT_CONNECTED;
+    *ppEnum = (IEnumMediaTypes*) new FiltaaEnumMediaTypes(mt);
     return S_OK;
 }
 
@@ -484,39 +491,6 @@ STDMETHODIMP FiltaaInputPin::QueryPinInfo(PIN_INFO* pInfo)
     StringCchCopy(pInfo->achName, _countof(pInfo->achName), _name);
     return S_OK;
 }
-
-// IMemInputPin methods
-STDMETHODIMP FiltaaInputPin::GetAllocator(IMemAllocator** ppAllocator)
-{
-    // XXX
-    if (ppAllocator == NULL) return E_POINTER;
-    fwprintf(stderr, L"InputPin(%s).GetAllocator\n", _name);
-    return CoCreateInstance(
-        CLSID_MemoryAllocator, 0, CLSCTX_INPROC_SERVER,
-        IID_IMemAllocator, (void**)ppAllocator);
-}
-
-STDMETHODIMP FiltaaInputPin::NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly)
-{
-    // XXX
-    if (pAllocator == NULL) return E_POINTER;
-    fwprintf(stderr, L"InputPin(%s).NotifyAllocator: readonly=%d\n", _name, bReadOnly);
-    if (bReadOnly) return E_FAIL;
-    pAllocator->AddRef();
-    if (_allocator != NULL) {
-        _allocator->Release();
-    }
-    _allocator = pAllocator;
-    return S_OK;
-}
-
-STDMETHODIMP FiltaaInputPin::Receive(IMediaSample* pSample)
-{
-    // XXX
-    if (pSample == NULL) return E_POINTER;
-    fwprintf(stderr, L"InputPin(%s).Receive: %p\n", _name, pSample);
-    return S_OK;
-}
     
 STDMETHODIMP FiltaaInputPin::ReceiveMultiple(
     IMediaSample** pSamples, long nSamples, long* nSamplesProcessed)
@@ -551,12 +525,17 @@ Filtaa::Filtaa()
     _pIn = new FiltaaInputPin(this, L"In", PINDIR_INPUT);
     _pOut = new FiltaaInputPin(this, L"Out", PINDIR_OUTPUT);
     ZeroMemory(&_mediatype, sizeof(_mediatype));
+    _allocator = NULL;
     AddRef();
 }
 
 Filtaa::~Filtaa()
 {
-    freeMediaType(&_mediatype);
+    eraseMediaType(&_mediatype);
+    if (_allocator != NULL) {
+        _allocator->Release();
+        _allocator = NULL;
+    }
     if (_clock != NULL) {
         _clock->Release();
         _clock = NULL;
@@ -677,7 +656,11 @@ STDMETHODIMP Filtaa::SetSyncSource(IReferenceClock* pClock)
 
 const AM_MEDIA_TYPE* Filtaa::GetMediaType()
 {
-    return &_mediatype;
+    if (_pIn->Connected() == NULL) {
+        return NULL;
+    } else {
+        return &_mediatype;
+    }
 }
 
 HRESULT Filtaa::Connect(const AM_MEDIA_TYPE* mt)
@@ -697,7 +680,6 @@ HRESULT Filtaa::ReceiveConnection(const AM_MEDIA_TYPE* mt)
 HRESULT Filtaa::BeginFlush()
 {
     fwprintf(stderr, L"Filtaa.BeginFlush\n");
-    _flushing = TRUE;
     IPin* pin = _pOut->Connected();
     if (pin != NULL) {
         pin->BeginFlush();
@@ -708,7 +690,6 @@ HRESULT Filtaa::BeginFlush()
 HRESULT Filtaa::EndFlush()
 {
     fwprintf(stderr, L"Filtaa.EndFlush\n");
-    _flushing = FALSE;
     IPin* pin = _pOut->Connected();
     if (pin != NULL) {
         pin->EndFlush();
@@ -733,5 +714,45 @@ HRESULT Filtaa::NewSegment(REFERENCE_TIME tStart, REFERENCE_TIME tStop, double d
     if (pin != NULL) {
         pin->NewSegment(tStart, tStop, dRate);
     }
+    return S_OK;
+}
+
+
+// IMemInputPin methods
+HRESULT Filtaa::GetAllocator(IMemAllocator** ppAllocator)
+{
+    // XXX
+    if (ppAllocator == NULL) return E_POINTER;
+    fwprintf(stderr, L"Filtaa.GetAllocator\n");
+    return CoCreateInstance(
+        CLSID_MemoryAllocator, 0, CLSCTX_INPROC_SERVER,
+        IID_IMemAllocator, (void**)ppAllocator);
+}
+
+HRESULT Filtaa::NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly)
+{
+    // XXX
+    if (pAllocator == NULL) return E_POINTER;
+    fwprintf(stderr, L"Filtaa.NotifyAllocator: readonly=%d\n", bReadOnly);
+    //if (bReadOnly) return E_FAIL;
+    pAllocator->AddRef();
+    if (_allocator != NULL) {
+        _allocator->Release();
+    }
+    _allocator = pAllocator;
+    IMemInputPin* pin = _pOut->Transport();
+    if (pin != NULL) {
+        HRESULT hr = pin->NotifyAllocator(pAllocator, bReadOnly);
+        fwprintf(stderr, L"Filtaa.NotifyAllocator: hr=%p\n", hr);
+        return hr;
+    }
+    return S_OK;
+}
+
+HRESULT Filtaa::Receive(IMediaSample* pSample)
+{
+    // XXX
+    if (pSample == NULL) return E_POINTER;
+    fwprintf(stderr, L"Filtaa.Receive: %p\n", pSample);
     return S_OK;
 }

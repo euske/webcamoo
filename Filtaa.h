@@ -19,7 +19,7 @@ private:
     FiltaaInputPin* _pIn;
     FiltaaInputPin* _pOut;
     AM_MEDIA_TYPE _mediatype;
-    BOOL _flushing;
+    IMemAllocator* _allocator;
     
     ~Filtaa();
 
@@ -73,4 +73,8 @@ public:
     HRESULT EndFlush();
     HRESULT EndOfStream();
     HRESULT NewSegment(REFERENCE_TIME tStart, REFERENCE_TIME tStop, double dRate);
+    
+    HRESULT GetAllocator(IMemAllocator** ppAllocator);
+    HRESULT NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly);
+    HRESULT Receive(IMediaSample* pSample);
 };
