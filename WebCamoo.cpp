@@ -284,7 +284,7 @@ WebCamoo::WebCamoo()
 
     // Create the video window.
     hr = CoCreateInstance(
-        CLSID_VideoRendererDefault, NULL, CLSCTX_INPROC,
+        CLSID_VideoRenderer, NULL, CLSCTX_INPROC,
         IID_IBaseFilter, (void**)&_pVideoSink);
     if (FAILED(hr)) throw std::exception("Unable to create a Video Renderer.");
 
@@ -399,15 +399,19 @@ HRESULT WebCamoo::UpdateFilterGraph()
             if (SUCCEEDED(hr)) {
                 hr = _pGraph->AddFilter(pFilter, L"Filtaa");
                 if (FAILED(hr)) return hr;
+                hr = _pCapture->RenderStream(
+                    &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Video,
+                    _pVideoSrc, pFilter, _pVideoSink);
                 pFilter->Release();
             }
+        } else {
+            // Render the preview pin on the video capture filter.
+            // Use this instead of _pGraph->RenderFile.
+            hr = _pCapture->RenderStream(
+                &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Video,
+                _pVideoSrc, NULL, _pVideoSink);
+            if (FAILED(hr)) return hr;
         }
-        // Render the preview pin on the video capture filter.
-        // Use this instead of _pGraph->RenderFile.
-        hr = _pCapture->RenderStream(
-            &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Video,
-            _pVideoSrc, NULL, _pVideoSink);
-        if (FAILED(hr)) return hr;
     }
 
     if (_pAudioSrc != NULL &&

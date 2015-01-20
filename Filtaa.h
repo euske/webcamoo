@@ -8,7 +8,7 @@
 
 class FiltaaInputPin;
 
-class Filtaa : IBaseFilter
+class Filtaa : public IBaseFilter
 {
 private:
     int _refCount;
@@ -20,14 +20,14 @@ private:
     FiltaaInputPin* _pOut;
     AM_MEDIA_TYPE _mediatype;
     IMemInputPin* _transport;
-    IMemAllocator* _allocator;
-    BOOL _readonly;
+    IMemAllocator* _allocatorIn;
+    IMemAllocator* _allocatorOut;
     
     ~Filtaa();
-
+    
 public:
     Filtaa();
-
+    
     // IUnknown methods
     STDMETHODIMP QueryInterface(REFIID iid, void** ppvObject);
     STDMETHODIMP_(ULONG) AddRef() {
@@ -70,8 +70,9 @@ public:
     // Others
     const AM_MEDIA_TYPE* GetMediaType();
     HRESULT Connect(IPin* pReceivePin, const AM_MEDIA_TYPE* mt);
-    HRESULT Disconnect();
     HRESULT ReceiveConnection(const AM_MEDIA_TYPE* mt);
+    HRESULT DisconnectInput();
+    HRESULT DisconnectOutput();
     HRESULT BeginFlush();
     HRESULT EndFlush();
     HRESULT EndOfStream();
@@ -80,4 +81,5 @@ public:
     HRESULT GetAllocator(IMemAllocator** ppAllocator);
     HRESULT NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly);
     HRESULT Receive(IMediaSample* pSample);
+    HRESULT Transform(IMediaSample* pSample);
 };
