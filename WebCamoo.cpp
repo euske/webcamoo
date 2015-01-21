@@ -219,7 +219,7 @@ class WebCamoo
 
     IVideoWindow* _pVW;
     IMediaEventEx* _pME;
-    PLAYSTATE _psCurrent;
+    PLAYSTATE _state;
 
     HWND _hWnd;
     HMENU _deviceMenu;
@@ -231,7 +231,7 @@ class WebCamoo
     void UpdateDeviceMenuChecks();
     HRESULT CleanupFilterGraph();
     HRESULT UpdateFilterGraph();
-    HRESULT UpdatePreviewState(BOOL running);
+    HRESULT UpdatePlayState(PLAYSTATE state);
     
     void ResizeVideoWindow(void);
     HRESULT HandleGraphEvent(void);
@@ -263,7 +263,7 @@ WebCamoo::WebCamoo()
     
     _pVW = NULL;
     _pME = NULL;
-    _psCurrent = Stopped;
+    _state = Init;
 
     _hWnd = NULL;
     _deviceMenu = NULL;
@@ -474,28 +474,25 @@ HRESULT WebCamoo::UpdateFilterGraph()
     return hr;
 }
 
-// UpdatePreviewState
-HRESULT WebCamoo::UpdatePreviewState(BOOL running)
+// UpdatePlayState
+HRESULT WebCamoo::UpdatePlayState(PLAYSTATE state)
 {
-    HRESULT hr;
+    HRESULT hr = S_OK;
 
     IMediaControl* pMC = NULL;
     hr = _pGraph->QueryInterface(
         IID_IMediaControl, (void**)&pMC);
     if (SUCCEEDED(hr)) {
-        if (running &&
-            IsWindowVisible(_hWnd) &&
-            !IsIconic(_hWnd) &&
-            (_pAudioSrc != NULL || _pVideoSrc != NULL)) {
-            if (_psCurrent != Running) {
-                // Start previewing video data.
-                hr = pMC->Run();
-                _psCurrent = Running;
-            }
-        } else {
-            // Stop previewing video data.
+        switch (state) {
+        case Running:
+            hr = pMC->Run();
+            break;
+        case Paused:
+            hr = pMC->Pause();
+            break;
+        case Stopped:
             hr = pMC->StopWhenReady();
-            _psCurrent = Stopped;
+            break;
         }
         pMC->Release();
     }
@@ -609,6 +606,8 @@ HRESULT WebCamoo::Initialize(HWND hWnd)
         (OAHWND)hWnd, WM_GRAPHNOTIFY, 0);
     if (FAILED(hr)) return hr;
 
+    _state = Running;
+
     return hr;
 }
 
@@ -671,7 +670,7 @@ HRESULT WebCamoo::HandleGraphEvent(void)
         //log(L"MediaEvent: code=%ld, param1=%p, param2=%p", evCode, evParam1, evParam2);
         switch (evCode) {
         case EC_ERRORABORT:
-            UpdatePreviewState(FALSE);
+            UpdatePlayState(Stopped);
             AttachVideo(NULL);
             AttachAudio(NULL);
             break;
@@ -681,10 +680,10 @@ HRESULT WebCamoo::HandleGraphEvent(void)
                 hr = ((IUnknown*)evParam1)->QueryInterface(
                     IID_IBaseFilter, (void**)pLost);
                 if (pLost == _pVideoSrc) {
-                    UpdatePreviewState(FALSE);
+                    UpdatePlayState(Stopped);
                     AttachVideo(NULL);
                 } else if (pLost == _pAudioSrc) {
-                    UpdatePreviewState(FALSE);
+                    UpdatePlayState(Stopped);
                     AttachAudio(NULL);
                 }
             }
@@ -704,17 +703,19 @@ void WebCamoo::DoCommand(UINT cmd)
         break;
 
     case IDM_DEVICE_VIDEO_NONE:
-        UpdatePreviewState(FALSE);
+        UpdatePlayState(Stopped);
         AttachVideo(NULL);
         _pVideoMoniker = NULL;
         UpdateDeviceMenuChecks();
+        UpdatePlayState(_state);
         break;
 
     case IDM_DEVICE_AUDIO_NONE:
-        UpdatePreviewState(FALSE);
+        UpdatePlayState(Stopped);
         AttachAudio(NULL);
         _pAudioMoniker = NULL;
         UpdateDeviceMenuChecks();
+        UpdatePlayState(_state);
         break;
 
     default:
@@ -732,10 +733,10 @@ void WebCamoo::DoCommand(UINT cmd)
                     IBaseFilter* pVideo = NULL;
                     HRESULT hr = pMoniker->BindToObject(0, 0, IID_IBaseFilter, (void**)&pVideo);
                     if (SUCCEEDED(hr)) {
-                        UpdatePreviewState(FALSE);
+                        UpdatePlayState(Stopped);
                         hr = AttachVideo(pVideo);
                         if (SUCCEEDED(hr)) {
-                            UpdatePreviewState(TRUE);
+                            UpdatePlayState(_state);
                         }
                         pVideo->Release();
                     }
@@ -757,10 +758,10 @@ void WebCamoo::DoCommand(UINT cmd)
                     IBaseFilter* pAudio = NULL;
                     HRESULT hr = pMoniker->BindToObject(0, 0, IID_IBaseFilter, (void**)&pAudio);
                     if (SUCCEEDED(hr)) {
-                        UpdatePreviewState(FALSE);
+                        UpdatePlayState(Stopped);
                         hr = AttachAudio(pAudio);
                         if (SUCCEEDED(hr)) {
-                            UpdatePreviewState(TRUE);
+                            UpdatePlayState(_state);
                         }
                         pAudio->Release();
                     }
@@ -786,7 +787,11 @@ void WebCamoo::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         break;
         
     case WM_WINDOWPOSCHANGED:
-        UpdatePreviewState(TRUE);
+        if (!IsWindowVisible(_hWnd) || IsIconic(_hWnd)) {
+            UpdatePlayState(Stopped);
+        } else {
+            UpdatePlayState(_state);
+        }
         break;
         
     case WM_GRAPHNOTIFY:
