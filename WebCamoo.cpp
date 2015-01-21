@@ -466,8 +466,6 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo)
     HRESULT hr;
     log(L"AttachVideo: %p", pVideo);
 
-    UpdatePreviewState(FALSE);
-    
     if (_pVW != NULL) {
         _pVW->put_Visible(OAFALSE);
         _pVW->put_Owner(NULL);
@@ -515,9 +513,6 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo)
         if (FAILED(hr)) return hr;
     }
 
-    hr = UpdatePreviewState(TRUE);
-    if (FAILED(hr)) return hr;
-
     return hr;
 }
 
@@ -526,8 +521,6 @@ HRESULT WebCamoo::AttachAudio(IBaseFilter* pAudio)
     HRESULT hr;
     log(L"AttachAudio: %p", pAudio);
 
-    UpdatePreviewState(FALSE);
-        
     CleanupFilterGraph();
 
     if (pAudio != NULL) {
@@ -545,9 +538,6 @@ HRESULT WebCamoo::AttachAudio(IBaseFilter* pAudio)
     }
     
     hr = UpdateFilterGraph();
-    if (FAILED(hr)) return hr;
-    
-    hr = UpdatePreviewState(TRUE);
     if (FAILED(hr)) return hr;
     
     return hr;
@@ -624,13 +614,29 @@ HRESULT WebCamoo::HandleGraphEvent(void)
     if (!_pME) return E_POINTER;
 
     while (SUCCEEDED(_pME->GetEvent(&evCode, &evParam1, &evParam2, 0))) {
-        // Free event parameters to prevent memory leaks associated with
-        // event parameter data.  While this application is not interested
-        // in the received events, applications should always process them.
-        //
+        //log(L"MediaEvent: code=%ld, param1=%p, param2=%p", evCode, evParam1, evParam2);
+        switch (evCode) {
+        case EC_ERRORABORT:
+            UpdatePreviewState(FALSE);
+            AttachVideo(NULL);
+            AttachAudio(NULL);
+            break;
+        case EC_DEVICE_LOST:
+            if (evParam2 == 0) {
+                IBaseFilter* pLost = NULL;
+                hr = ((IUnknown*)evParam1)->QueryInterface(
+                    IID_IBaseFilter, (void**)pLost);
+                if (pLost == _pVideoSrc) {
+                    UpdatePreviewState(FALSE);
+                    AttachVideo(NULL);
+                } else if (pLost == _pAudioSrc) {
+                    UpdatePreviewState(FALSE);
+                    AttachAudio(NULL);
+                }
+            }
+            break;
+        }
         hr = _pME->FreeEventParams(evCode, evParam1, evParam2);
-        
-        // Insert event processing code here, if desired
     }
 
     return hr;
@@ -644,10 +650,12 @@ void WebCamoo::DoCommand(UINT cmd)
         break;
 
     case IDM_DEVICE_VIDEO_NONE:
+        UpdatePreviewState(FALSE);
         AttachVideo(NULL);
         break;
 
     case IDM_DEVICE_AUDIO_NONE:
+        UpdatePreviewState(FALSE);
         AttachAudio(NULL);
         break;
 
@@ -666,7 +674,11 @@ void WebCamoo::DoCommand(UINT cmd)
                     IBaseFilter* pVideo = NULL;
                     HRESULT hr = pMoniker->BindToObject(0, 0, IID_IBaseFilter, (void**)&pVideo);
                     if (SUCCEEDED(hr)) {
-                        AttachVideo(pVideo);
+                        UpdatePreviewState(FALSE);
+                        hr = AttachVideo(pVideo);
+                        if (SUCCEEDED(hr)) {
+                            UpdatePreviewState(TRUE);
+                        }
                         pVideo->Release();
                     }
                 }
@@ -685,7 +697,11 @@ void WebCamoo::DoCommand(UINT cmd)
                     IBaseFilter* pAudio = NULL;
                     HRESULT hr = pMoniker->BindToObject(0, 0, IID_IBaseFilter, (void**)&pAudio);
                     if (SUCCEEDED(hr)) {
-                        AttachAudio(pAudio);
+                        UpdatePreviewState(FALSE);
+                        hr = AttachAudio(pAudio);
+                        if (SUCCEEDED(hr)) {
+                            UpdatePreviewState(TRUE);
+                        }
                         pAudio->Release();
                     }
                 }
@@ -734,6 +750,7 @@ static LRESULT CALLBACK WndMainProc(
     LPARAM lParam)
 {
     HRESULT hr;
+    //log(L"hWnd:%p, uMsg=%u, wParam=%lu, lParam=%p", hWnd, uMsg, wParam, lParam);
 
     switch (uMsg) {
     case WM_CREATE:

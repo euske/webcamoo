@@ -126,7 +126,7 @@ static HRESULT copyBuffer(IMediaSample* dst, IMediaSample* src)
     BYTE* pSrc = NULL;
     BYTE* pDst = NULL;
     hr = src->GetPointer(&pSrc);
-    hr = src->GetPointer(&pDst);
+    hr = dst->GetPointer(&pDst);
     if (pSrc != NULL && pDst != NULL) {
         CopyMemory(pDst, pSrc, size);
     }
@@ -760,15 +760,15 @@ HRESULT Filtaa::DisconnectInput()
         _allocatorIn->Release();
         _allocatorIn = NULL;
     }
+    if (_allocatorOut != NULL) {
+        _allocatorOut->Release();
+        _allocatorOut = NULL;
+    }
     return S_OK;
 }
 
 HRESULT Filtaa::DisconnectOutput()
 {
-    if (_allocatorOut != NULL) {
-        _allocatorOut->Release();
-        _allocatorOut = NULL;
-    }
     if (_transport != NULL) {
         _transport->Release();
         _transport = NULL;
@@ -823,7 +823,6 @@ HRESULT Filtaa::NewSegment(REFERENCE_TIME tStart, REFERENCE_TIME tStop, double d
 // IMemInputPin methods
 HRESULT Filtaa::GetAllocator(IMemAllocator** ppAllocator)
 {
-    // XXX
     if (ppAllocator == NULL) return E_POINTER;
     fwprintf(stderr, L"Filtaa.GetAllocator\n");
     return CoCreateInstance(
@@ -833,36 +832,43 @@ HRESULT Filtaa::GetAllocator(IMemAllocator** ppAllocator)
 
 HRESULT Filtaa::NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly)
 {
-    // XXX
     HRESULT hr;
     if (pAllocator == NULL) return E_POINTER;
     fwprintf(stderr, L"Filtaa.NotifyAllocator: readonly=%d\n", bReadOnly);
-    if (bReadOnly) {
-        // make my own allocator.
-        ALLOCATOR_PROPERTIES prop, actual;
-        hr = pAllocator->GetProperties(&prop);
-        if (FAILED(hr)) return hr;
-        hr = GetAllocator(&pAllocator);
-        if (FAILED(hr)) return hr;
-        hr = pAllocator->SetProperties(&prop, &actual);
-        if (FAILED(hr)) return hr;
-        hr = pAllocator->Commit();
-        if (FAILED(hr)) return hr;
-    } else {
-        pAllocator->AddRef();
-    }
+
+    pAllocator->AddRef();
     if (_allocatorIn != NULL) {
         _allocatorIn->Release();
     }
     _allocatorIn = pAllocator;
+
+    if (_allocatorOut != NULL) {
+        _allocatorOut = NULL;
+    }
+    if (bReadOnly) {
+        // Have my own allocator.
+        ALLOCATOR_PROPERTIES prop, actual;
+        hr = _allocatorIn->GetProperties(&prop);
+        if (FAILED(hr)) return hr;
+        // Override pAllocator.
+        hr = GetAllocator(&_allocatorOut);
+        if (FAILED(hr)) return hr;
+        hr = _allocatorOut->SetProperties(&prop, &actual);
+        if (FAILED(hr)) return hr;
+        hr = _allocatorOut->Commit();
+        if (FAILED(hr)) return hr;
+    } else {
+        _allocatorOut = _allocatorIn;
+        _allocatorOut->AddRef();
+    }
     return S_OK;
 }
 
 HRESULT Filtaa::Receive(IMediaSample* pSample)
 {
-    // XXX
     HRESULT hr;
     if (pSample == NULL) return E_POINTER;
+    
     fwprintf(stderr, L"Filtaa.Receive: %p\n", pSample);
     if (_allocatorIn != _allocatorOut) {
         IMediaSample* tmp = NULL;
@@ -873,6 +879,7 @@ HRESULT Filtaa::Receive(IMediaSample* pSample)
         pSample->Release();
         pSample = tmp;
     }
+    
     AM_MEDIA_TYPE* mt = NULL;
     hr = pSample->GetMediaType(&mt);
     if (mt == NULL || isMediaTypeEqual(&_mediatype, mt)) {
@@ -885,6 +892,8 @@ HRESULT Filtaa::Receive(IMediaSample* pSample)
     if (_transport != NULL) {
         _transport->Receive(pSample);
     }
+    pSample->Release();
+    
     return S_OK;
 }
 
