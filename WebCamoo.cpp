@@ -16,6 +16,7 @@
 #define _WIN32_WINNT 0x0500
 
 #include <windows.h>
+#include <dbt.h>
 #include <dshow.h>
 #include <stdio.h>
 #include <strsafe.h>
@@ -131,10 +132,16 @@ static void ResetCaptureDevices(HMENU hMenu)
     for(int i = 0; i < n; i++) {
         MENUITEMINFO mii = {0};
         mii.cbSize = sizeof(mii);
+        mii.fMask = (MIIM_ID | MIIM_DATA);
         GetMenuItemInfo(hMenu, i, TRUE, &mii);
-        IMoniker* pMoniker = (IMoniker*)mii.dwItemData;
-        if (pMoniker != NULL) {
-            pMoniker->Release();
+        if ((IDM_DEVICE_VIDEO_START <= mii.wID &&
+             mii.wID <= IDM_DEVICE_VIDEO_END) ||
+            (IDM_DEVICE_AUDIO_START <= mii.wID &&
+             mii.wID <= IDM_DEVICE_AUDIO_END)) {
+            IMoniker* pMoniker = (IMoniker*)mii.dwItemData;
+            if (pMoniker != NULL) {
+                pMoniker->Release();
+            }
         }
         RemoveMenu(hMenu, 0, MF_BYPOSITION);
     }
@@ -216,8 +223,12 @@ class WebCamoo
 
     HWND _hWnd;
     HMENU _deviceMenu;
+    HDEVNOTIFY _notify;
+    IMoniker* _pVideoMoniker;
+    IMoniker* _pAudioMoniker;
     
-    void UpdateDeviceMenu();
+    void UpdateDeviceMenuItems();
+    void UpdateDeviceMenuChecks();
     HRESULT CleanupFilterGraph();
     HRESULT UpdateFilterGraph();
     HRESULT UpdatePreviewState(BOOL running);
@@ -256,6 +267,8 @@ WebCamoo::WebCamoo()
 
     _hWnd = NULL;
     _deviceMenu = NULL;
+    _pVideoMoniker = NULL;
+    _pAudioMoniker = NULL;
 
     // Create the filter graph.
     hr = CoCreateInstance(
@@ -332,10 +345,10 @@ WebCamoo::~WebCamoo()
     }
 }
 
-// UpdateDeviceMenu
-void WebCamoo::UpdateDeviceMenu()
+// UpdateDeviceMenuItems
+void WebCamoo::UpdateDeviceMenuItems()
 {
-    log(L"UpdateDeviceMenu");
+    log(L"UpdateDeviceMenuItems");
     
     ResetCaptureDevices(_deviceMenu);
     AppendMenu(_deviceMenu, MF_STRING | MF_DISABLED, 0, L"Video Devices");
@@ -349,6 +362,35 @@ void WebCamoo::UpdateDeviceMenu()
     AddCaptureDevices(
         _deviceMenu, IDM_DEVICE_AUDIO_START,
         CLSID_AudioInputDeviceCategory);
+}
+
+// UpdateDeviceMenuChecks
+void WebCamoo::UpdateDeviceMenuChecks()
+{
+    int n = GetMenuItemCount(_deviceMenu);
+    for(int i = 0; i < n; i++) {
+        MENUITEMINFO mii = {0};
+        mii.cbSize = sizeof(mii);
+        mii.fMask = (MIIM_ID | MIIM_DATA);
+        GetMenuItemInfo(_deviceMenu, i, TRUE, &mii);
+        BOOL checked;
+        if (mii.wID == IDM_DEVICE_VIDEO_NONE) {
+            checked = (_pVideoMoniker == NULL);
+        } else if (mii.wID == IDM_DEVICE_AUDIO_NONE) {
+            checked = (_pAudioMoniker == NULL);
+        } else if (IDM_DEVICE_VIDEO_START <= mii.wID &&
+                   mii.wID <= IDM_DEVICE_VIDEO_END) {
+            checked = (_pVideoMoniker == (IMoniker*)mii.dwItemData);
+        } else if (IDM_DEVICE_AUDIO_START <= mii.wID &&
+                   mii.wID <= IDM_DEVICE_AUDIO_END) {
+            checked = (_pAudioMoniker == (IMoniker*)mii.dwItemData);
+        } else {
+            continue;
+        }
+        mii.fMask = MIIM_STATE;
+        mii.fState = (checked)? MFS_CHECKED : MFS_UNCHECKED;
+        SetMenuItemInfo(_deviceMenu, i, TRUE, &mii);
+    }
 }
 
 // CleanupFilterGraph
@@ -549,7 +591,14 @@ HRESULT WebCamoo::Initialize(HWND hWnd)
 
     _hWnd = hWnd;
     _deviceMenu = GetSubMenu(GetMenu(hWnd), 1);
-    UpdateDeviceMenu();
+    UpdateDeviceMenuItems();
+
+    // Register for device add/remove notifications
+    DEV_BROADCAST_DEVICEINTERFACE dev = {0};
+    dev.dbcc_size = sizeof(DEV_BROADCAST_DEVICEINTERFACE);
+    dev.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
+    dev.dbcc_classguid = AM_KSCATEGORY_CAPTURE;
+    _notify = RegisterDeviceNotification(hWnd, &dev, DEVICE_NOTIFY_WINDOW_HANDLE);
     
     hr = _pGraph->QueryInterface(
         IID_IMediaEventEx, (void**)&_pME);
@@ -584,6 +633,11 @@ void WebCamoo::Uninitialize(void)
         _pME->SetNotifyWindow(NULL, WM_GRAPHNOTIFY, 0);
         _pME->Release();
         _pME = NULL;
+    }
+
+    if (_notify != NULL) {
+        UnregisterDeviceNotification(_notify);
+        _notify = NULL;
     }
 
     if (_deviceMenu != NULL) {
@@ -652,11 +706,15 @@ void WebCamoo::DoCommand(UINT cmd)
     case IDM_DEVICE_VIDEO_NONE:
         UpdatePreviewState(FALSE);
         AttachVideo(NULL);
+        _pVideoMoniker = NULL;
+        UpdateDeviceMenuChecks();
         break;
 
     case IDM_DEVICE_AUDIO_NONE:
         UpdatePreviewState(FALSE);
         AttachAudio(NULL);
+        _pAudioMoniker = NULL;
+        UpdateDeviceMenuChecks();
         break;
 
     default:
@@ -681,6 +739,8 @@ void WebCamoo::DoCommand(UINT cmd)
                         }
                         pVideo->Release();
                     }
+                    _pVideoMoniker = pMoniker;
+                    UpdateDeviceMenuChecks();
                 }
             }
         } else if (IDM_DEVICE_AUDIO_START <= cmd &&
@@ -704,6 +764,8 @@ void WebCamoo::DoCommand(UINT cmd)
                         }
                         pAudio->Release();
                     }
+                    _pAudioMoniker = pMoniker;
+                    UpdateDeviceMenuChecks();
                 }
             }
         }
@@ -731,6 +793,20 @@ void WebCamoo::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         HandleGraphEvent();
         break;
         
+    case WM_DEVICECHANGE:
+        if (wParam == DBT_DEVICEARRIVAL ||
+            wParam == DBT_DEVICEREMOVECOMPLETE) {
+            PDEV_BROADCAST_HDR pdbh = (PDEV_BROADCAST_HDR)lParam;
+            if (pdbh->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
+                PDEV_BROADCAST_DEVICEINTERFACE pdbi = (PDEV_BROADCAST_DEVICEINTERFACE)lParam;
+                // Check for capture devices.
+                if (pdbi->dbcc_classguid == AM_KSCATEGORY_CAPTURE) {
+                    UpdateDeviceMenuItems();
+                }
+            }
+        }
+        break;
+        
     case WM_CLOSE:
         Uninitialize();
         DestroyWindow(_hWnd);
@@ -750,7 +826,7 @@ static LRESULT CALLBACK WndMainProc(
     LPARAM lParam)
 {
     HRESULT hr;
-    //log(L"hWnd:%p, uMsg=%u, wParam=%lu, lParam=%p", hWnd, uMsg, wParam, lParam);
+    //log(L"hWnd:%p, uMsg=%x, wParam=%lu, lParam=%p", hWnd, uMsg, wParam, lParam);
 
     switch (uMsg) {
     case WM_CREATE:

@@ -536,7 +536,7 @@ STDMETHODIMP FiltaaInputPin::ConnectionMediaType(AM_MEDIA_TYPE* mt)
 
 STDMETHODIMP FiltaaInputPin::Disconnect()
 {
-    fwprintf(stderr, L"InputPin(%s).Disconnect\n", _name);
+    //fwprintf(stderr, L"InputPin(%s).Disconnect\n", _name);
     if (_connected == NULL) return S_FALSE;
     if (_direction == PINDIR_INPUT) {
         _filter->DisconnectInput();
@@ -682,7 +682,7 @@ STDMETHODIMP Filtaa::QueryInterface(REFIID iid, void** ppvObject)
 // IBaseFilter methods
 STDMETHODIMP Filtaa::JoinFilterGraph(IFilterGraph* pGraph, LPCWSTR pName)
 {
-    fwprintf(stderr, L"Filtaa.JoinFilterGraph: name=%s\n", pName);
+    //fwprintf(stderr, L"Filtaa.JoinFilterGraph: name=%s\n", pName);
     if (pGraph != NULL) {
         pGraph->AddRef();
     }
