@@ -10,6 +10,40 @@ static inline size_t align32(size_t x)
     return (((x+3) >> 4) << 4);
 }
 
+static inline int getLuma(const RGBTRIPLE* p)
+{
+    return (p->rgbtRed*76 + p->rgbtGreen*150 + p->rgbtBlue*30) >> 8;
+}
+
+static int getThreshold(const ULONG* hist)
+{
+    ULONG total = 0, sum = 0;
+    for (int i = 0; i < 256; i++) {
+        total += hist[i];
+        sum += i*hist[i];
+    }
+
+    ULONG wb = 0, sumb = 0;
+    double max = 0;
+    int threshold = 0;
+    for (int i = 0; i < 256; i++) {
+        wb += hist[i];
+        if (wb == 0) continue;
+        ULONG wf = total - wb;
+        if (wf == 0) break;
+        sumb += i*hist[i];
+        double mb = (double)sumb/(double)wb;
+        double mf = ((double)sum-(double)sumb)/(double)wf;
+        double v = wb*wf*(mb-mf)*(mb-mf);
+        if (max < v) {
+            max = v;
+            threshold = i;
+        }
+    }
+
+    return threshold;
+}
+
 static BOOL isMediaTypeAcceptable(const AM_MEDIA_TYPE* mt)
 {
     if (mt->majortype != MEDIATYPE_Video) return FALSE;
@@ -586,11 +620,13 @@ Filtaa::Filtaa()
     _transport = NULL;
     _allocatorIn = NULL;
     _allocatorOut = NULL;
+    _hist = (ULONG*)CoTaskMemAlloc(sizeof(ULONG)*256);
     AddRef();
 }
 
 Filtaa::~Filtaa()
 {
+    CoTaskMemFree(_hist);
     eraseMediaType(&_mediatype);
     if (_allocatorIn != NULL) {
         _allocatorIn->Release();
@@ -909,11 +945,23 @@ HRESULT Filtaa::Transform(IMediaSample* pSample)
     int width = vi->bmiHeader.biWidth;
     int height = vi->bmiHeader.biHeight;
     size_t linesize = align32(width * 3);
+
+    RGBTRIPLE fgColor = {0,0,0};
+    RGBTRIPLE bgColor = {255,255,255};
+    
+    int threshold = getThreshold(_hist);
+    memset(_hist, 0, sizeof(ULONG)*256);
     for (int y = 0; y < height; y++) {
-        BYTE* p = line;
+        RGBTRIPLE* p = (RGBTRIPLE*)line;
         for (int x = 0; x < width; x++) {
-            p[0] = 255;
-            p += 3;
+            int lum = getLuma(p);
+            _hist[lum]++;
+            if (lum < threshold) {
+                *p = fgColor;
+            } else {
+                *p = bgColor;
+            }
+            p++;
         }
         line += linesize;
     }

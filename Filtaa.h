@@ -22,6 +22,7 @@ private:
     IMemInputPin* _transport;
     IMemAllocator* _allocatorIn;
     IMemAllocator* _allocatorOut;
+    ULONG* _hist;
     
     ~Filtaa();
     
