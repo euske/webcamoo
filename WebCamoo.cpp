@@ -301,6 +301,15 @@ WebCamoo::WebCamoo()
         IID_IBaseFilter, (void**)&_pVideoSink);
     if (FAILED(hr)) throw std::exception("Unable to create a Video Renderer.");
 
+    // Obtain interfaces for Video Window.
+    hr = _pVideoSink->QueryInterface(
+        IID_IVideoWindow, (void**)&_pVW);
+    if (FAILED(hr)) throw std::exception("Unable to create a Video Window.");
+    
+    hr = _pGraph->QueryInterface(
+        IID_IMediaEventEx, (void**)&_pME);
+    if (FAILED(hr)) throw std::exception("Unable to create a Media Event.");
+
     // Create the audio output.
     hr = CoCreateInstance(
         CLSID_DSoundRender, NULL, CLSCTX_INPROC,
@@ -316,6 +325,16 @@ WebCamoo::~WebCamoo()
         _pFiltaa = NULL;
     }
     
+    if (_pVW != NULL) {
+        _pVW->Release();
+        _pVW = NULL;
+    }
+    
+    if (_pME != NULL) {
+        _pME->Release();
+        _pME = NULL;
+    }
+
     if (_pVideoSink != NULL) {
         _pVideoSink->Release();
         _pVideoSink = NULL;
@@ -507,7 +526,6 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo)
 
     if (_pVW != NULL) {
         _pVW->put_Visible(OAFALSE);
-        _pVW->put_Owner(NULL);
     }
 
     CleanupFilterGraph();
@@ -530,11 +548,6 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo)
     if (FAILED(hr)) return hr;
         
     if (_pVideoSrc != NULL) {
-        // Obtain interfaces for media control and Video Window.
-        hr = _pVideoSink->QueryInterface(
-            IID_IVideoWindow, (void**)&_pVW);
-        if (FAILED(hr)) return hr;
-
         // Set the video window to be a child of the main window.
         hr = _pVW->put_Owner((OAHWND)_hWnd);
         if (FAILED(hr)) return hr;
@@ -596,10 +609,6 @@ HRESULT WebCamoo::Initialize(HWND hWnd)
     dev.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
     dev.dbcc_classguid = AM_KSCATEGORY_CAPTURE;
     _notify = RegisterDeviceNotification(hWnd, &dev, DEVICE_NOTIFY_WINDOW_HANDLE);
-    
-    hr = _pGraph->QueryInterface(
-        IID_IMediaEventEx, (void**)&_pME);
-    if (FAILED(hr)) return hr;
 
     // Set the window handle used to process graph events.
     hr = _pME->SetNotifyWindow(
@@ -613,26 +622,18 @@ HRESULT WebCamoo::Initialize(HWND hWnd)
 
 void WebCamoo::Uninitialize(void)
 {
-    AttachVideo(NULL);
-    AttachAudio(NULL);
-
     // Relinquish ownership (IMPORTANT!) of the video window.
     // Failing to call put_Owner can lead to assert failures within
     // the video renderer, as it still assumes that it has a valid
     // parent window.
-    if (_pVW != NULL) {
-        _pVW->put_Visible(OAFALSE);
-        _pVW->put_Owner(NULL);
-        _pVW->Release();
-        _pVW = NULL;
-    }
+    _pVW->put_Visible(OAFALSE);
+    _pVW->put_Owner(NULL);
 
     // Stop receiving events.
-    if (_pME != NULL) {
-        _pME->SetNotifyWindow(NULL, WM_GRAPHNOTIFY, 0);
-        _pME->Release();
-        _pME = NULL;
-    }
+    _pME->SetNotifyWindow(NULL, WM_GRAPHNOTIFY, 0);
+
+    AttachVideo(NULL);
+    AttachAudio(NULL);
 
     if (_notify != NULL) {
         UnregisterDeviceNotification(_notify);
