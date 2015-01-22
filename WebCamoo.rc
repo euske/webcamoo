@@ -57,6 +57,6 @@ BEGIN
 
     POPUP "&Output"
     BEGIN
-	MENUITEM SEPARATOR
+        MENUITEM "Keep &Aspect Ratio", IDM_KEEP_ASPECT_RATIO, CHECKED
     END
 END

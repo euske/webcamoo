@@ -63,6 +63,20 @@ static void log(LPCWSTR fmt, ...)
     fflush(logfp);
 }
 
+static HMENU findSubMenu(HMENU hMenu, UINT id)
+{
+    MENUITEMINFO mii = {0};
+    mii.cbSize = sizeof(mii);
+    for (int i = 0; i < 10; i++) {
+        HMENU hSubMenu = GetSubMenu(hMenu, i);
+        if (GetMenuItemInfo(hSubMenu, id, FALSE, &mii)) {
+            hMenu = hSubMenu;
+            break;
+        }
+    }
+    return hMenu;
+}
+
 
 // An application can advertise the existence of its filter graph
 // by registering the graph with a global Running Object Table (ROT).
@@ -220,13 +234,16 @@ class WebCamoo
     IVideoWindow* _pVW;
     IMediaEventEx* _pME;
     FILTER_STATE _state;
+    long _videoWidth;
+    long _videoHeight;
 
     HWND _hWnd;
     HMENU _deviceMenu;
     HDEVNOTIFY _notify;
     IMoniker* _pVideoMoniker;
     IMoniker* _pAudioMoniker;
-    
+
+    BOOL GetMenuItemState(UINT id);
     void UpdateDeviceMenuItems();
     void UpdateDeviceMenuChecks();
     HRESULT CleanupFilterGraph();
@@ -244,8 +261,8 @@ public:
     void DoCommand(UINT cmd);
     void Uninitialize(void);
     void HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-    HRESULT AttachVideo(IBaseFilter* pVideo);
-    HRESULT AttachAudio(IBaseFilter* pAudio);
+    HRESULT AttachVideo(IBaseFilter* pVideoSrc);
+    HRESULT AttachAudio(IBaseFilter* pAudioSrc);
 };
 
 WebCamoo::WebCamoo()
@@ -362,6 +379,18 @@ WebCamoo::~WebCamoo()
         _pCapture->Release();
         _pCapture = NULL;
     }
+}
+
+BOOL WebCamoo::GetMenuItemState(UINT id)
+{
+    HMENU hMenu = findSubMenu(GetMenu(_hWnd), id);
+    MENUITEMINFO mii = {0};
+    mii.cbSize = sizeof(mii);
+    mii.fMask = MIIM_STATE;
+    if (GetMenuItemInfo(hMenu, id, FALSE, &mii)) {
+        return (mii.fState & MFS_CHECKED);
+    }
+    return FALSE;
 }
 
 // UpdateDeviceMenuItems
@@ -524,19 +553,17 @@ HRESULT WebCamoo::UpdatePlayState(FILTER_STATE state)
     return hr;
 }
 
-HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo)
+HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideoSrc)
 {
     HRESULT hr;
-    log(L"AttachVideo: %p", pVideo);
+    log(L"AttachVideo: %p", pVideoSrc);
 
-    if (_pVW != NULL) {
-        _pVW->put_Visible(OAFALSE);
-    }
+    _pVW->put_Visible(OAFALSE);
 
     CleanupFilterGraph();
 
-    if (pVideo != NULL) {
-        pVideo->AddRef();
+    if (pVideoSrc != NULL) {
+        pVideoSrc->AddRef();
     }
 
     if (_pVideoSrc != NULL) {
@@ -544,8 +571,8 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo)
         _pVideoSrc = NULL;
     }
     
-    if (pVideo != NULL) {
-        _pVideoSrc = pVideo;
+    if (pVideoSrc != NULL) {
+        _pVideoSrc = pVideoSrc;
         //_pVideoSrc->AddRef(); // already done.
     }
     
@@ -553,6 +580,7 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo)
     if (FAILED(hr)) return hr;
         
     if (_pVideoSrc != NULL) {
+        
         // Set the video window to be a child of the main window.
         hr = _pVW->put_Owner((OAHWND)_hWnd);
         if (FAILED(hr)) return hr;
@@ -561,6 +589,13 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo)
         hr = _pVW->put_WindowStyle(WS_CHILD | WS_CLIPCHILDREN);
         if (FAILED(hr)) return hr;
 
+        // Obtain the native video size.
+        IBasicVideo* pVideo = NULL;
+        hr = _pVideoSink->QueryInterface(IID_IBasicVideo, (void**)&pVideo);
+        if (FAILED(hr)) return hr;
+        pVideo->GetVideoSize(&_videoWidth, &_videoHeight);
+        pVideo->Release();
+        
         // Use helper function to position video window in client rect
         // of main application window.
         ResizeVideoWindow();
@@ -573,15 +608,15 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideo)
     return hr;
 }
 
-HRESULT WebCamoo::AttachAudio(IBaseFilter* pAudio)
+HRESULT WebCamoo::AttachAudio(IBaseFilter* pAudioSrc)
 {
     HRESULT hr;
-    log(L"AttachAudio: %p", pAudio);
+    log(L"AttachAudio: %p", pAudioSrc);
 
     CleanupFilterGraph();
 
-    if (pAudio != NULL) {
-        pAudio->AddRef();
+    if (pAudioSrc != NULL) {
+        pAudioSrc->AddRef();
     }
 
     if (_pAudioSrc != NULL) {
@@ -589,8 +624,8 @@ HRESULT WebCamoo::AttachAudio(IBaseFilter* pAudio)
         _pAudioSrc = NULL;
     }
     
-    if (pAudio != NULL) {
-        _pAudioSrc = pAudio;
+    if (pAudioSrc != NULL) {
+        _pAudioSrc = pAudioSrc;
         //_pAudioSrc->AddRef(); // already done.
     }
     
@@ -653,12 +688,31 @@ void WebCamoo::Uninitialize(void)
 
 void WebCamoo::ResizeVideoWindow(void)
 {
+    HRESULT hr;
+        
     // Resize the video preview window to match owner window size
-    if (_pVW != NULL) {
-        RECT rc;
-        // Make the preview video fill our window
-        GetClientRect(_hWnd, &rc);
-        _pVW->SetWindowPosition(0, 0, rc.right, rc.bottom);
+    RECT rc;
+    GetClientRect(_hWnd, &rc);
+    int w0 = rc.right - rc.left;
+    int h0 = rc.bottom - rc.top;
+    if (GetMenuItemState(IDM_KEEP_ASPECT_RATIO)) {
+        int w1 = _videoWidth;
+        int h1 = _videoHeight;
+        if (w0*h1 < w1*h0) {
+            // fit horizontally.
+            h1 = h1*w0/w1;
+            w1 = w0;
+        } else {
+            // fit vertically.
+            w1 = w1*h0/h1;
+            h1 = h0;
+        }
+        _pVW->SetWindowPosition((rc.left+rc.right-w1)/2,
+                                (rc.top+rc.bottom-h1)/2,
+                                w1, h1);
+    } else {
+        // Make the preview video fill our window.
+        _pVW->SetWindowPosition(rc.left, rc.top, w0, h0);
     }
 }
 
@@ -701,9 +755,27 @@ HRESULT WebCamoo::HandleGraphEvent(void)
 
 void WebCamoo::DoCommand(UINT cmd)
 {
+    HMENU hMenu = findSubMenu(GetMenu(_hWnd), cmd);
+    WCHAR name[1024];
+    MENUITEMINFO mii = {0};
+    mii.cbSize = sizeof(mii);
+    mii.dwTypeData = name;
+    mii.cch = 1024;
+
     switch (cmd) {
     case IDM_EXIT:
         SendMessage(_hWnd, WM_CLOSE, 0, 0);
+        break;
+
+    case IDM_KEEP_ASPECT_RATIO:
+        mii.fMask = MIIM_STATE;
+        if (GetMenuItemInfo(hMenu, cmd, FALSE, &mii)) {
+            BOOL checked = (mii.fState & MFS_CHECKED);
+            checked = !checked;
+            mii.fState = (checked)? MFS_CHECKED : MFS_UNCHECKED;
+            SetMenuItemInfo(hMenu, cmd, FALSE, &mii);
+            ResizeVideoWindow();
+        }
         break;
 
     case IDM_DEVICE_VIDEO_NONE:
@@ -725,21 +797,17 @@ void WebCamoo::DoCommand(UINT cmd)
     default:
         if (IDM_DEVICE_VIDEO_START <= cmd &&
             cmd <= IDM_DEVICE_VIDEO_END) {
-            WCHAR name[1024];
-            MENUITEMINFO mii = {0};
-            mii.cbSize = sizeof(mii);
             mii.fMask = (MIIM_STRING | MIIM_DATA);
-            mii.dwTypeData = name;
-            mii.cch = 1024;
-            if (GetMenuItemInfo(_deviceMenu, cmd, FALSE, &mii)) {
+            if (GetMenuItemInfo(hMenu, cmd, FALSE, &mii)) {
                 if (mii.dwItemData != NULL) {
                     IMoniker* pMoniker = (IMoniker*)mii.dwItemData;
-                    IBaseFilter* pVideo = NULL;
-                    HRESULT hr = pMoniker->BindToObject(0, 0, IID_IBaseFilter, (void**)&pVideo);
+                    IBaseFilter* pVideoSrc = NULL;
+                    HRESULT hr = pMoniker->BindToObject(
+                        0, 0, IID_IBaseFilter, (void**)&pVideoSrc);
                     if (SUCCEEDED(hr)) {
                         UpdatePlayState(State_Stopped);
-                        hr = AttachVideo(pVideo);
-                        pVideo->Release();
+                        hr = AttachVideo(pVideoSrc);
+                        pVideoSrc->Release();
                         UpdatePlayState(State_Running);
                     }
                     _pVideoMoniker = pMoniker;
@@ -748,21 +816,17 @@ void WebCamoo::DoCommand(UINT cmd)
             }
         } else if (IDM_DEVICE_AUDIO_START <= cmd &&
                    cmd <= IDM_DEVICE_AUDIO_END) {
-            WCHAR name[1024];
-            MENUITEMINFO mii = {0};
-            mii.cbSize = sizeof(mii);
             mii.fMask = (MIIM_STRING | MIIM_DATA);
-            mii.dwTypeData = name;
-            mii.cch = 1024;
-            if (GetMenuItemInfo(_deviceMenu, cmd, FALSE, &mii)) {
+            if (GetMenuItemInfo(hMenu, cmd, FALSE, &mii)) {
                 if (mii.dwItemData != NULL) {
                     IMoniker* pMoniker = (IMoniker*)mii.dwItemData;
-                    IBaseFilter* pAudio = NULL;
-                    HRESULT hr = pMoniker->BindToObject(0, 0, IID_IBaseFilter, (void**)&pAudio);
+                    IBaseFilter* pAudioSrc = NULL;
+                    HRESULT hr = pMoniker->BindToObject(
+                        0, 0, IID_IBaseFilter, (void**)&pAudioSrc);
                     if (SUCCEEDED(hr)) {
                         UpdatePlayState(State_Stopped);
-                        hr = AttachAudio(pAudio);
-                        pAudio->Release();
+                        hr = AttachAudio(pAudioSrc);
+                        pAudioSrc->Release();
                         UpdatePlayState(State_Running);
                     }
                     _pAudioMoniker = pMoniker;
