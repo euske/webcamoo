@@ -244,6 +244,7 @@ class WebCamoo
     IMoniker* _pAudioMoniker;
 
     BOOL GetMenuItemState(UINT id);
+    void ToggleMenuItemState(UINT id);
     void UpdateDeviceMenuItems();
     void UpdateDeviceMenuChecks();
     HRESULT CleanupFilterGraph();
@@ -277,7 +278,6 @@ WebCamoo::WebCamoo()
     _pVideoSink = NULL;
     _pAudioSink = NULL;
     _pFiltaa = new Filtaa();
-    //_pFiltaa = NULL;
     
     _pVW = NULL;
     _pME = NULL;
@@ -394,6 +394,19 @@ BOOL WebCamoo::GetMenuItemState(UINT id)
     return FALSE;
 }
 
+void WebCamoo::ToggleMenuItemState(UINT id)
+{
+    HMENU hMenu = findSubMenu(GetMenu(_hWnd), id);
+    MENUITEMINFO mii = {0};
+    mii.cbSize = sizeof(mii);
+    mii.fMask = MIIM_STATE;
+    if (GetMenuItemInfo(hMenu, id, FALSE, &mii)) {
+        BOOL checked = (mii.fState & MFS_CHECKED);
+        mii.fState = (checked)? MFS_UNCHECKED : MFS_CHECKED;
+        SetMenuItemInfo(hMenu, id, FALSE, &mii);
+    }
+}
+
 // UpdateDeviceMenuItems
 void WebCamoo::UpdateDeviceMenuItems()
 {
@@ -477,6 +490,8 @@ HRESULT WebCamoo::UpdateFilterGraph()
     HRESULT hr;
     log(L"UpdateFilterGraph");
     
+    CleanupFilterGraph();
+
     if (_pVideoSrc != NULL &&
         _pVideoSink != NULL) {
         // Add Capture filter to our graph.
@@ -484,7 +499,7 @@ HRESULT WebCamoo::UpdateFilterGraph()
         if (FAILED(hr)) return hr;
         hr = _pGraph->AddFilter(_pVideoSink, L"VideoSink");
         if (FAILED(hr)) return hr;
-        if (_pFiltaa != NULL) {
+        if (GetMenuItemState(IDM_THRESHOLDING)) {
             IBaseFilter* pFilter = NULL;
             hr = _pFiltaa->QueryInterface(IID_PPV_ARGS(&pFilter));
             if (SUCCEEDED(hr)) {
@@ -560,8 +575,6 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideoSrc)
 
     _pVW->put_Visible(OAFALSE);
 
-    CleanupFilterGraph();
-
     if (pVideoSrc != NULL) {
         pVideoSrc->AddRef();
     }
@@ -612,8 +625,6 @@ HRESULT WebCamoo::AttachAudio(IBaseFilter* pAudioSrc)
 {
     HRESULT hr;
     log(L"AttachAudio: %p", pAudioSrc);
-
-    CleanupFilterGraph();
 
     if (pAudioSrc != NULL) {
         pAudioSrc->AddRef();
@@ -773,15 +784,16 @@ void WebCamoo::DoCommand(UINT cmd)
         SendMessage(_hWnd, WM_CLOSE, 0, 0);
         break;
 
+    case IDM_THRESHOLDING:
+        UpdatePlayState(State_Stopped);
+        ToggleMenuItemState(cmd);
+        UpdateFilterGraph();
+        UpdatePlayState(State_Running);
+        break;
+
     case IDM_KEEP_ASPECT_RATIO:
-        mii.fMask = MIIM_STATE;
-        if (GetMenuItemInfo(hMenu, cmd, FALSE, &mii)) {
-            BOOL checked = (mii.fState & MFS_CHECKED);
-            checked = !checked;
-            mii.fState = (checked)? MFS_CHECKED : MFS_UNCHECKED;
-            SetMenuItemInfo(hMenu, cmd, FALSE, &mii);
-            ResizeVideoWindow();
-        }
+        ToggleMenuItemState(cmd);
+        ResizeVideoWindow();
         break;
 
     case IDM_DEVICE_VIDEO_NONE:

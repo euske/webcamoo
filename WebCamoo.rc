@@ -57,6 +57,7 @@ BEGIN
 
     POPUP "&Output"
     BEGIN
+        MENUITEM "Black/White", IDM_THRESHOLDING
         MENUITEM "Keep &Aspect Ratio", IDM_KEEP_ASPECT_RATIO, CHECKED
     END
 END
