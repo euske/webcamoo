@@ -51,12 +51,9 @@ public:
         if (pState == NULL) return E_POINTER;
         *pState = _state; return S_OK;
     }
-    STDMETHODIMP Run(REFERENCE_TIME tStart)
-        { _state = State_Running; return S_OK; }
-    STDMETHODIMP Pause()
-        { _state = State_Paused; return S_OK; }
-    STDMETHODIMP Stop()
-        { _state = State_Stopped; return S_OK; }
+    STDMETHODIMP Run(REFERENCE_TIME tStart);
+    STDMETHODIMP Pause();
+    STDMETHODIMP Stop();
 
     STDMETHODIMP GetSyncSource(IReferenceClock** ppClock);
     STDMETHODIMP SetSyncSource(IReferenceClock* pClock);
@@ -80,6 +77,7 @@ public:
     HRESULT EndOfStream();
     HRESULT NewSegment(REFERENCE_TIME tStart, REFERENCE_TIME tStop, double dRate);
     
+    HRESULT GetAllocatorRequirements(ALLOCATOR_PROPERTIES* pProp);
     HRESULT GetAllocator(IMemAllocator** ppAllocator);
     HRESULT NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly);
     HRESULT Receive(IMediaSample* pSample);
