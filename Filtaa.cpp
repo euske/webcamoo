@@ -35,7 +35,7 @@ static int getThreshold(const ULONG* hist)
         ULONG sf = sum - sb;
         double mb = (double)sb/(double)wb;
         double mf = (double)sf/(double)wf;
-        double v = wb*wf*(mb-mf)*(mb-mf);
+        double v = (double)wb*(double)wf*(mb-mf)*(mb-mf);
         if (max < v) {
             max = v;
             threshold = i;
