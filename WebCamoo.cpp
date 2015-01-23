@@ -170,7 +170,7 @@ static HRESULT AddCaptureDevices(HMENU hMenu, UINT wID, CLSID category)
     ICreateDevEnum* pDevEnum = NULL;
     hr = CoCreateInstance(
         CLSID_SystemDeviceEnum, NULL, CLSCTX_INPROC,
-        IID_ICreateDevEnum, (void**)&pDevEnum);
+        IID_PPV_ARGS(&pDevEnum));
     
     if (SUCCEEDED(hr)) {
         // Create an enumerator for the video capture devices.
@@ -189,7 +189,7 @@ static HRESULT AddCaptureDevices(HMENU hMenu, UINT wID, CLSID category)
             // check that the return code is S_OK instead of using SUCCEEDED() macro.
             while (pClassEnum->Next(1, &pMoniker, NULL) == S_OK) {
                 IPropertyBag* pBag = NULL;
-                hr = pMoniker->BindToStorage(NULL, NULL, IID_IPropertyBag, (void **)&pBag);
+                hr = pMoniker->BindToStorage(NULL, NULL, IID_PPV_ARGS(&pBag));
                 if (SUCCEEDED(hr)) {
                     VARIANT var;
                     var.vt = VT_BSTR;
@@ -277,6 +277,7 @@ WebCamoo::WebCamoo()
     _pVideoSink = NULL;
     _pAudioSink = NULL;
     _pFiltaa = new Filtaa();
+    //_pFiltaa = NULL;
     
     _pVW = NULL;
     _pME = NULL;
@@ -290,13 +291,13 @@ WebCamoo::WebCamoo()
     // Create the filter graph.
     hr = CoCreateInstance(
         CLSID_FilterGraph, NULL, CLSCTX_INPROC,
-        IID_IGraphBuilder, (void**)&_pGraph);
+        IID_PPV_ARGS(&_pGraph));
     if (FAILED(hr)) throw std::exception("Unable to initialize a FilterGraph.");
 
     // Create the capture graph builder.
     hr = CoCreateInstance(
         CLSID_CaptureGraphBuilder2, NULL, CLSCTX_INPROC,
-        IID_ICaptureGraphBuilder2, (void**)&_pCapture);
+        IID_PPV_ARGS(&_pCapture));
     if (FAILED(hr)) throw std::exception("Unable to initialize a GraphBuilder.");
 
     // Attach the filter graph to the capture graph.
@@ -315,22 +316,22 @@ WebCamoo::WebCamoo()
     // Create the video window.
     hr = CoCreateInstance(
         CLSID_VideoRenderer, NULL, CLSCTX_INPROC,
-        IID_IBaseFilter, (void**)&_pVideoSink);
+        IID_PPV_ARGS(&_pVideoSink));
     if (FAILED(hr)) throw std::exception("Unable to create a Video Renderer.");
 
     // Obtain interfaces for Video Window.
     hr = _pVideoSink->QueryInterface(
-        IID_IVideoWindow, (void**)&_pVW);
+        IID_PPV_ARGS(&_pVW));
     if (FAILED(hr)) throw std::exception("Unable to create a Video Window.");
     
     hr = _pGraph->QueryInterface(
-        IID_IMediaEventEx, (void**)&_pME);
+        IID_PPV_ARGS(&_pME));
     if (FAILED(hr)) throw std::exception("Unable to create a Media Event.");
 
     // Create the audio output.
     hr = CoCreateInstance(
         CLSID_DSoundRender, NULL, CLSCTX_INPROC,
-        IID_IBaseFilter, (void**)&_pAudioSink);
+        IID_PPV_ARGS(&_pAudioSink));
     if (FAILED(hr)) throw std::exception("Unable to create a Audio Renderer.");
     
 }
@@ -371,13 +372,13 @@ WebCamoo::~WebCamoo()
     }
 
     // Release DirectShow interfaces.
-    if (_pGraph != NULL) {
-        _pGraph->Release();
-        _pGraph = NULL;
-    }
     if (_pCapture != NULL) {
         _pCapture->Release();
         _pCapture = NULL;
+    }
+    if (_pGraph != NULL) {
+        _pGraph->Release();
+        _pGraph = NULL;
     }
 }
 
@@ -457,11 +458,11 @@ HRESULT WebCamoo::CleanupFilterGraph()
             IBaseFilter* pFilter = NULL;
             while (pEnum->Next(1, &pFilter, NULL) == S_OK) {
                 hr = _pGraph->RemoveFilter(pFilter);
+                pFilter->Release();
                 if (SUCCEEDED(hr)) {
                     changed = TRUE;
                     break;
                 }
-                pFilter->Release();
             }
         }
         pEnum->Release();
@@ -485,7 +486,7 @@ HRESULT WebCamoo::UpdateFilterGraph()
         if (FAILED(hr)) return hr;
         if (_pFiltaa != NULL) {
             IBaseFilter* pFilter = NULL;
-            hr = _pFiltaa->QueryInterface(IID_IBaseFilter, (void**)&pFilter);
+            hr = _pFiltaa->QueryInterface(IID_PPV_ARGS(&pFilter));
             if (SUCCEEDED(hr)) {
                 hr = _pGraph->AddFilter(pFilter, L"Filtaa");
                 if (FAILED(hr)) return hr;
@@ -529,8 +530,7 @@ HRESULT WebCamoo::UpdatePlayState(FILTER_STATE state)
 
     if (state != _state) {
         IMediaControl* pMC = NULL;
-        hr = _pGraph->QueryInterface(
-            IID_IMediaControl, (void**)&pMC);
+        hr = _pGraph->QueryInterface(IID_PPV_ARGS(&pMC));
         if (SUCCEEDED(hr)) {
             switch (state) {
             case State_Running:
@@ -591,7 +591,7 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideoSrc)
 
         // Obtain the native video size.
         IBasicVideo* pVideo = NULL;
-        hr = _pVideoSink->QueryInterface(IID_IBasicVideo, (void**)&pVideo);
+        hr = _pVideoSink->QueryInterface(IID_PPV_ARGS(&pVideo));
         if (FAILED(hr)) return hr;
         pVideo->GetVideoSize(&_videoWidth, &_videoHeight);
         pVideo->Release();
@@ -660,6 +660,16 @@ HRESULT WebCamoo::Initialize(HWND hWnd)
 
 void WebCamoo::Uninitialize(void)
 {
+    HRESULT hr;
+    IMediaControl* pMC = NULL;
+    hr = _pGraph->QueryInterface(IID_PPV_ARGS(&pMC));
+    if (SUCCEEDED(hr)) {
+        hr = pMC->Stop();
+        pMC->Release();
+    }
+    AttachVideo(NULL);
+    AttachAudio(NULL);
+        
     // Relinquish ownership (IMPORTANT!) of the video window.
     // Failing to call put_Owner can lead to assert failures within
     // the video renderer, as it still assumes that it has a valid
@@ -669,9 +679,6 @@ void WebCamoo::Uninitialize(void)
 
     // Stop receiving events.
     _pME->SetNotifyWindow(NULL, WM_GRAPHNOTIFY, 0);
-
-    AttachVideo(NULL);
-    AttachAudio(NULL);
 
     if (_notify != NULL) {
         UnregisterDeviceNotification(_notify);
@@ -735,8 +742,7 @@ HRESULT WebCamoo::HandleGraphEvent(void)
         case EC_DEVICE_LOST:
             if (evParam2 == 0) {
                 IBaseFilter* pLost = NULL;
-                hr = ((IUnknown*)evParam1)->QueryInterface(
-                    IID_IBaseFilter, (void**)pLost);
+                hr = ((IUnknown*)evParam1)->QueryInterface(IID_PPV_ARGS(&pLost));
                 if (pLost == _pVideoSrc) {
                     UpdatePlayState(State_Stopped);
                     AttachVideo(NULL);
@@ -803,7 +809,7 @@ void WebCamoo::DoCommand(UINT cmd)
                     IMoniker* pMoniker = (IMoniker*)mii.dwItemData;
                     IBaseFilter* pVideoSrc = NULL;
                     HRESULT hr = pMoniker->BindToObject(
-                        0, 0, IID_IBaseFilter, (void**)&pVideoSrc);
+                        NULL, NULL, IID_PPV_ARGS(&pVideoSrc));
                     if (SUCCEEDED(hr)) {
                         UpdatePlayState(State_Stopped);
                         hr = AttachVideo(pVideoSrc);
@@ -822,7 +828,7 @@ void WebCamoo::DoCommand(UINT cmd)
                     IMoniker* pMoniker = (IMoniker*)mii.dwItemData;
                     IBaseFilter* pAudioSrc = NULL;
                     HRESULT hr = pMoniker->BindToObject(
-                        0, 0, IID_IBaseFilter, (void**)&pAudioSrc);
+                        NULL, NULL, IID_PPV_ARGS(&pAudioSrc));
                     if (SUCCEEDED(hr)) {
                         UpdatePlayState(State_Stopped);
                         hr = AttachAudio(pAudioSrc);

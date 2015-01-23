@@ -23,7 +23,7 @@ static int getThreshold(const ULONG* hist)
         sum += i*hist[i];
     }
 
-    ULONG wb = 0, sumb = 0;
+    ULONG wb = 0, sb = 0;
     double max = 0;
     int threshold = 0;
     for (int i = 0; i < 256; i++) {
@@ -31,9 +31,10 @@ static int getThreshold(const ULONG* hist)
         if (wb == 0) continue;
         ULONG wf = total - wb;
         if (wf == 0) break;
-        sumb += i*hist[i];
-        double mb = (double)sumb/(double)wb;
-        double mf = ((double)sum-(double)sumb)/(double)wf;
+        sb += i*hist[i];
+        ULONG sf = sum - sb;
+        double mb = (double)sb/(double)wb;
+        double mf = (double)sf/(double)wf;
         double v = wb*wf*(mb-mf)*(mb-mf);
         if (max < v) {
             max = v;
@@ -682,7 +683,7 @@ STDMETHODIMP Filtaa::QueryInterface(REFIID iid, void** ppvObject)
 // IBaseFilter methods
 STDMETHODIMP Filtaa::JoinFilterGraph(IFilterGraph* pGraph, LPCWSTR pName)
 {
-    //fwprintf(stderr, L"Filtaa.JoinFilterGraph: name=%s\n", pName);
+    //fwprintf(stderr, L"Filtaa.JoinFilterGraph: pGraph=%p\n", pGraph);
     if (pGraph != NULL) {
         pGraph->AddRef();
     }
@@ -736,10 +737,10 @@ STDMETHODIMP Filtaa::GetSyncSource(IReferenceClock** ppClock)
 {
     //fwprintf(stderr, L"Filtaa.GetSyncSource\n");
     if (ppClock == NULL) return E_POINTER;
-    if (_clock != NULL) {
-        _clock->AddRef();
-    }
     (*ppClock) = _clock;
+    if (*ppClock != NULL) {
+        (*ppClock)->AddRef();
+    }
     return S_OK;
 }
 
@@ -777,7 +778,7 @@ HRESULT Filtaa::Connect(IPin* pReceivePin, const AM_MEDIA_TYPE* mt)
     hr = pReceivePin->ReceiveConnection((IPin*)_pOut, &_mediatype);
     if (FAILED(hr)) return hr;
 
-    hr = pReceivePin->QueryInterface(IID_IMemInputPin, (void**)&_transport);
+    hr = pReceivePin->QueryInterface(IID_PPV_ARGS(&_transport));
     if (FAILED(hr)) return hr;
 
     if (_allocatorOut == NULL) {
@@ -863,7 +864,7 @@ HRESULT Filtaa::GetAllocator(IMemAllocator** ppAllocator)
     fwprintf(stderr, L"Filtaa.GetAllocator\n");
     return CoCreateInstance(
         CLSID_MemoryAllocator, 0, CLSCTX_INPROC_SERVER,
-        IID_IMemAllocator, (void**)ppAllocator);
+        IID_PPV_ARGS(ppAllocator));
 }
 
 HRESULT Filtaa::NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly)
@@ -879,6 +880,7 @@ HRESULT Filtaa::NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly)
     _allocatorIn = pAllocator;
 
     if (_allocatorOut != NULL) {
+        _allocatorOut->Release();
         _allocatorOut = NULL;
     }
     if (bReadOnly) {
