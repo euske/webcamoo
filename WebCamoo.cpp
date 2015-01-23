@@ -37,8 +37,7 @@
 //
 const int DEFAULT_VIDEO_WIDTH = 320;
 const int DEFAULT_VIDEO_HEIGHT = 320;
-const LPCWSTR APPLICATIONNAME = L"Video Capture Previewer (WebCamoo)";
-const LPCWSTR CLASSNAME = L"VidCapPreviewer";
+const LPCWSTR APPLICATION_NAME = L"WebCamoo";
 
 // Application-defined message to notify app of filtergraph events.
 const UINT WM_GRAPHNOTIFY = WM_APP+1;
@@ -273,6 +272,7 @@ WebCamoo::WebCamoo()
     _pGraph = NULL;
     _pCapture = NULL;
     _dwGraphRegister = 0;
+    
     _pVideoSrc = NULL;
     _pAudioSrc = NULL;
     _pVideoSink = NULL;
@@ -282,9 +282,12 @@ WebCamoo::WebCamoo()
     _pVW = NULL;
     _pME = NULL;
     _state = State_Stopped;
+    _videoWidth = 0;
+    _videoHeight = 0;
 
     _hWnd = NULL;
     _deviceMenu = NULL;
+    _notify = NULL;
     _pVideoMoniker = NULL;
     _pAudioMoniker = NULL;
 
@@ -588,6 +591,8 @@ HRESULT WebCamoo::AttachVideo(IBaseFilter* pVideoSrc)
         _pVideoSrc = pVideoSrc;
         //_pVideoSrc->AddRef(); // already done.
     }
+    _videoWidth = 0;
+    _videoHeight = 0;
     
     hr = UpdateFilterGraph();
     if (FAILED(hr)) return hr;
@@ -707,6 +712,7 @@ void WebCamoo::Uninitialize(void)
 void WebCamoo::ResizeVideoWindow(void)
 {
     HRESULT hr;
+    if (_videoWidth == 0 || _videoHeight == 0) return;
         
     // Resize the video preview window to match owner window size
     RECT rc;
@@ -965,7 +971,7 @@ int WebCamooMain(
         WNDCLASS klass = {0};
         klass.lpfnWndProc   = WndMainProc;
         klass.hInstance     = hInstance;
-        klass.lpszClassName = CLASSNAME;
+        klass.lpszClassName = L"WebCamooClass";
         klass.lpszMenuName  = MAKEINTRESOURCE(IDM_MENU);
 	klass.hbrBackground = (HBRUSH)(COLOR_APPWORKSPACE+1);
         klass.hCursor       = LoadCursor(NULL, IDC_ARROW);
@@ -978,7 +984,7 @@ int WebCamooMain(
     // The WS_CLIPCHILDREN style is required.
     HWND hWnd = CreateWindow(
         (LPCTSTR)atom,
-        APPLICATIONNAME,
+        APPLICATION_NAME,
         WS_OVERLAPPEDWINDOW | WS_CAPTION | WS_CLIPCHILDREN,
         CW_USEDEFAULT, CW_USEDEFAULT,
         DEFAULT_VIDEO_WIDTH, DEFAULT_VIDEO_HEIGHT,
