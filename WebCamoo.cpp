@@ -41,12 +41,10 @@ const LPCWSTR APPLICATION_NAME = L"WebCamoo";
 
 // Application-defined message to notify app of filtergraph events.
 const UINT WM_GRAPHNOTIFY = WM_APP+1;
-const UINT IDM_DEVICE_VIDEO_NONE = 10000;
-const UINT IDM_DEVICE_VIDEO_START = 10001;
-const UINT IDM_DEVICE_VIDEO_END = 19999;
-const UINT IDM_DEVICE_AUDIO_NONE = 20000;
-const UINT IDM_DEVICE_AUDIO_START = 20001;
-const UINT IDM_DEVICE_AUDIO_END = 29999;
+const UINT IDM_DEVICE_VIDEO_START = IDM_DEVICE_VIDEO_NONE+1;
+const UINT IDM_DEVICE_VIDEO_END = IDM_DEVICE_VIDEO_NONE+9999;
+const UINT IDM_DEVICE_AUDIO_START = IDM_DEVICE_AUDIO_NONE+1;
+const UINT IDM_DEVICE_AUDIO_END = IDM_DEVICE_AUDIO_NONE+9999;
 
 static FILE* logfp = NULL;      // logging
 static void log(LPCWSTR fmt, ...)
@@ -74,6 +72,20 @@ static HMENU findSubMenu(HMENU hMenu, UINT id)
         }
     }
     return hMenu;
+}
+
+static int findMenuItemPos(HMENU hMenu, UINT id)
+{
+    MENUITEMINFO mii = {0};
+    mii.cbSize = sizeof(mii);
+    mii.fMask = MIIM_ID;
+    int n = GetMenuItemCount(hMenu);
+    for (int i = 0; i < n; i++) {
+        if (GetMenuItemInfo(hMenu, i, TRUE, &mii)) {
+            if (mii.wID == id) return i;
+        }
+    }
+    return -1;
 }
 
 
@@ -155,13 +167,13 @@ static void ResetCaptureDevices(HMENU hMenu)
             if (pMoniker != NULL) {
                 pMoniker->Release();
             }
+            RemoveMenu(hMenu, mii.wID, MF_BYCOMMAND);
         }
-        RemoveMenu(hMenu, 0, MF_BYPOSITION);
     }
 }
 
 // AddCaptureDevices
-static HRESULT AddCaptureDevices(HMENU hMenu, UINT wID, CLSID category)
+static HRESULT AddCaptureDevices(HMENU hMenu, int pos, UINT wID, CLSID category)
 {
     HRESULT hr;
 
@@ -201,9 +213,10 @@ static HRESULT AddCaptureDevices(HMENU hMenu, UINT wID, CLSID category)
                         mii.dwItemData = (ULONG_PTR)pMoniker;
                         mii.cch = lstrlen(var.bstrVal);
                         mii.wID = wID++;
-                        InsertMenuItem(hMenu, UINT_MAX, TRUE, &mii);
+                        InsertMenuItem(hMenu, pos, TRUE, &mii);
                         SysFreeString(var.bstrVal);
                         pMoniker->AddRef();
+                        pos++;
                     }
                     pBag->Release();
                 }
@@ -416,16 +429,15 @@ void WebCamoo::UpdateDeviceMenuItems()
     log(L"UpdateDeviceMenuItems");
     
     ResetCaptureDevices(_deviceMenu);
-    AppendMenu(_deviceMenu, MF_STRING | MF_DISABLED, 0, L"Video Devices");
-    AppendMenu(_deviceMenu, MF_STRING | MF_ENABLED, IDM_DEVICE_VIDEO_NONE, L"None");
     AddCaptureDevices(
-        _deviceMenu, IDM_DEVICE_VIDEO_START,
+        _deviceMenu,
+        findMenuItemPos(_deviceMenu, IDM_DEVICE_VIDEO_NONE),
+        IDM_DEVICE_VIDEO_START,
         CLSID_VideoInputDeviceCategory);
-    AppendMenu(_deviceMenu, MF_SEPARATOR | MF_ENABLED, 0, NULL);
-    AppendMenu(_deviceMenu, MF_STRING | MF_DISABLED, 0, L"Audio Devices");
-    AppendMenu(_deviceMenu, MF_STRING | MF_ENABLED, IDM_DEVICE_AUDIO_NONE, L"None");
     AddCaptureDevices(
-        _deviceMenu, IDM_DEVICE_AUDIO_START,
+        _deviceMenu, 
+        findMenuItemPos(_deviceMenu, IDM_DEVICE_AUDIO_NONE),
+        IDM_DEVICE_AUDIO_START,
         CLSID_AudioInputDeviceCategory);
 }
 
@@ -884,6 +896,10 @@ void WebCamoo::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         
     case WM_GRAPHNOTIFY:
         HandleGraphEvent();
+        break;
+
+    case WM_INITMENU:
+        UpdateDeviceMenuChecks();
         break;
         
     case WM_DEVICECHANGE:
