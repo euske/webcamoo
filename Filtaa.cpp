@@ -458,7 +458,7 @@ public:
 
 FiltaaInputPin::FiltaaInputPin(Filtaa* filter, LPCWSTR name, PIN_DIRECTION direction)
 {
-    fwprintf(stderr, L"InputPin(%p,%s): direction=%d\n", this, name, direction);
+    //fwprintf(stderr, L"InputPin(%p,%s): direction=%d\n", this, name, direction);
     _refCount = 0;
     _filter = filter;
     _name = name;
@@ -470,7 +470,7 @@ FiltaaInputPin::FiltaaInputPin(Filtaa* filter, LPCWSTR name, PIN_DIRECTION direc
 
 FiltaaInputPin::~FiltaaInputPin()
 {
-    fwprintf(stderr, L"~InputPin(%s)\n", _name);
+    //fwprintf(stderr, L"~InputPin(%s)\n", _name);
     if (_connected != NULL) {
         _connected->Release();
         _connected = NULL;
@@ -978,7 +978,7 @@ HRESULT Filtaa::Receive(IMediaSample* pSample)
     HRESULT hr;
     if (pSample == NULL) return E_POINTER;
     
-    fwprintf(stderr, L"Filtaa.Receive: %p\n", pSample);
+    //fwprintf(stderr, L"Filtaa.Receive: %p\n", pSample);
     IMediaSample* pRWSample = NULL;
     if (_allocatorOut != NULL) {
         hr = _allocatorOut->GetBuffer(&pRWSample, NULL, NULL, 0);
