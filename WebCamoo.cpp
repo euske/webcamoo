@@ -489,10 +489,42 @@ void WebCamoo::UpdateDeviceMenuItems()
 // UpdateDeviceMenuChecks
 void WebCamoo::UpdateDeviceMenuChecks()
 {
+    HRESULT hr;
+    MENUITEMINFO mii = {0};
+    mii.cbSize = sizeof(mii);
+    
+    BOOL filterProp = FALSE;
+    BOOL pinProp = FALSE;
+    if (_pVideoSrc != NULL) {
+        ISpecifyPropertyPages* pSpec = NULL;
+        hr = _pVideoSrc->QueryInterface(IID_PPV_ARGS(&pSpec));
+        if (SUCCEEDED(hr)) {
+            filterProp = TRUE;
+            pSpec->Release();
+        }
+        IPin* pPin = NULL;
+        hr = findPin(_pVideoSrc, PINDIR_OUTPUT,
+                     &PIN_CATEGORY_CAPTURE, &pPin);
+        if (SUCCEEDED(hr)) {
+            hr = pPin->QueryInterface(IID_PPV_ARGS(&pSpec));
+            if (SUCCEEDED(hr)) {
+                mii.fMask = MIIM_STATE;
+                pinProp = TRUE;
+                pSpec->Release();
+            }
+            pPin->Release();
+        }
+    }
+
+    mii.fMask = MIIM_STATE;
+    mii.fState = (filterProp)? MFS_ENABLED : MFS_DISABLED;
+    SetMenuItemInfo(_deviceMenu, IDM_OPEN_FILTER_PROPERTIES, FALSE, &mii);
+    mii.fMask = MIIM_STATE;
+    mii.fState = (pinProp)? MFS_ENABLED : MFS_DISABLED;
+    SetMenuItemInfo(_deviceMenu, IDM_OPEN_PIN_PROPERTIES, FALSE, &mii);
+    
     int n = GetMenuItemCount(_deviceMenu);
     for(int i = 0; i < n; i++) {
-        MENUITEMINFO mii = {0};
-        mii.cbSize = sizeof(mii);
         mii.fMask = (MIIM_ID | MIIM_DATA);
         GetMenuItemInfo(_deviceMenu, i, TRUE, &mii);
         BOOL checked;
@@ -671,6 +703,7 @@ HRESULT WebCamoo::SelectVideo(IMoniker* pMoniker)
         }
     } else {
         hr = S_OK;
+        _pVideoMoniker = NULL;
     }
 
     return hr;
@@ -694,6 +727,7 @@ HRESULT WebCamoo::SelectAudio(IMoniker* pMoniker)
         }
     } else {
         hr = S_OK;
+        _pAudioMoniker = NULL;
     }
     
     return S_OK;
@@ -839,8 +873,8 @@ HRESULT WebCamoo::HandleGraphEvent(void)
 HRESULT WebCamoo::OpenFilterProperties()
 {
     HRESULT hr;
-    if (_pVideoSrc == NULL || _pVideoMoniker == NULL) return S_OK;
-                                
+    if (_pVideoSrc == NULL) return S_OK;
+    
     ISpecifyPropertyPages* pSpec = NULL;
     hr = _pVideoSrc->QueryInterface(IID_PPV_ARGS(&pSpec));
     if (SUCCEEDED(hr)) {
@@ -873,7 +907,7 @@ HRESULT WebCamoo::OpenFilterProperties()
 HRESULT WebCamoo::OpenPinProperties()
 {
     HRESULT hr;
-    if (_pVideoSrc == NULL || _pVideoMoniker == NULL) return S_OK;
+    if (_pVideoSrc == NULL) return S_OK;
     
     UpdatePlayState(State_Stopped);
 
