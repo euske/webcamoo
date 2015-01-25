@@ -5,46 +5,10 @@
 #include <dshow.h>
 #include "Filtaa.h"
 
-static inline size_t align32(size_t x)
-{
-    return (((x+3) >> 4) << 4);
-}
 
-static inline int getLuma(const RGBTRIPLE* p)
-{
-    return (p->rgbtRed*76 + p->rgbtGreen*150 + p->rgbtBlue*30) >> 8;
-}
+// DirectShow helper functions.
 
-static int getThreshold(const ULONG* hist)
-{
-    ULONG total = 0, sum = 0;
-    for (int i = 0; i < 256; i++) {
-        total += hist[i];
-        sum += i*hist[i];
-    }
-
-    ULONG wb = 0, sb = 0;
-    double max = 0;
-    int threshold = 0;
-    for (int i = 0; i < 256; i++) {
-        wb += hist[i];
-        if (wb == 0) continue;
-        ULONG wf = total - wb;
-        if (wf == 0) break;
-        sb += i*hist[i];
-        ULONG sf = sum - sb;
-        double mb = (double)sb/(double)wb;
-        double mf = (double)sf/(double)wf;
-        double v = (double)wb*(double)wf*(mb-mf)*(mb-mf);
-        if (max < v) {
-            max = v;
-            threshold = i;
-        }
-    }
-
-    return threshold;
-}
-
+// isMediaTypeAcceptable: checks if the media type is acceptable.
 static BOOL isMediaTypeAcceptable(const AM_MEDIA_TYPE* mt)
 {
     if (mt->majortype != MEDIATYPE_Video) return FALSE;
@@ -53,6 +17,7 @@ static BOOL isMediaTypeAcceptable(const AM_MEDIA_TYPE* mt)
     return TRUE;
 }
 
+// isMediaTypeEqual: checks if two media types are equal.
 static BOOL isMediaTypeEqual(const AM_MEDIA_TYPE* mt1, const AM_MEDIA_TYPE* mt2)
 {
     if (mt1->majortype != mt2->majortype) return FALSE;
@@ -65,6 +30,8 @@ static BOOL isMediaTypeEqual(const AM_MEDIA_TYPE* mt1, const AM_MEDIA_TYPE* mt2)
     return TRUE;
 }
 
+// copyMediaType: copy a media type.
+//   Note: pbFormat is newly allocated.
 static HRESULT copyMediaType(AM_MEDIA_TYPE* dst, const AM_MEDIA_TYPE* src)
 {
     if (src == NULL) return E_POINTER;
@@ -79,6 +46,8 @@ static HRESULT copyMediaType(AM_MEDIA_TYPE* dst, const AM_MEDIA_TYPE* src)
     return S_OK;
 }
 
+// eraseMediaType: erase a media type.
+//   Note: pbFormat is freed.
 static HRESULT eraseMediaType(AM_MEDIA_TYPE* mt)
 {
     if (mt == NULL) return E_POINTER;
@@ -88,15 +57,18 @@ static HRESULT eraseMediaType(AM_MEDIA_TYPE* mt)
     return S_OK;
 }
 
+// mt2str: returns a text that describes a media type. (for debugging)
 static LPCWSTR mt2str(const AM_MEDIA_TYPE* mt)
 {
     if (mt == NULL) return L"<null>";
+
     static WCHAR major[64];
     if (mt->majortype == MEDIATYPE_Video) {
         swprintf_s(major, _countof(major), L"Video");
     } else {
         swprintf_s(major, _countof(major), L"[%08x]", mt->majortype.Data1);
     }
+    
     static WCHAR sub[64];
     if (mt->subtype == MEDIASUBTYPE_RGB24) {
         swprintf_s(sub, _countof(sub), L"RGB24");
@@ -107,6 +79,7 @@ static LPCWSTR mt2str(const AM_MEDIA_TYPE* mt)
     } else {
         swprintf_s(sub, _countof(sub), L"[%08x]", mt->subtype.Data1);
     }
+    
     static WCHAR format[64];
     if (mt->formattype == FORMAT_VideoInfo && mt->cbFormat) {
         VIDEOINFOHEADER* vi = (VIDEOINFOHEADER*)mt->pbFormat;
@@ -115,6 +88,7 @@ static LPCWSTR mt2str(const AM_MEDIA_TYPE* mt)
     } else {
         swprintf_s(format, _countof(format), L"[%08x]", mt->formattype.Data1);
     }
+    
     static WCHAR buf[256];
     swprintf_s(buf, _countof(buf),
                L"<major=%s, sub=%s, size=%lu, format=%s>",
@@ -122,6 +96,7 @@ static LPCWSTR mt2str(const AM_MEDIA_TYPE* mt)
     return buf;
 }
 
+// isPropAcceptable: check if given allocator properties are acceptable.
 static BOOL isPropAcceptable(
     const ALLOCATOR_PROPERTIES* req,
     const ALLOCATOR_PROPERTIES* given)
@@ -132,6 +107,7 @@ static BOOL isPropAcceptable(
             req->cbPrefix == given->cbPrefix);
 }
 
+// prop2str: returns a text that describes allocator properties. (for debugging)
 static LPCWSTR prop2str(const ALLOCATOR_PROPERTIES* prop)
 {
     static WCHAR buf[256];
@@ -141,10 +117,16 @@ static LPCWSTR prop2str(const ALLOCATOR_PROPERTIES* prop)
     return buf;
 }
 
-static HRESULT copyBuffer(IMediaSample* dst, IMediaSample* src)
+// copyMediaSample: copy the content of an IMediaSample instance.
+static HRESULT copyMediaSample(IMediaSample* dst, IMediaSample* src)
 {
     HRESULT hr;
+    if (src == NULL) return E_POINTER;
+    if (dst == NULL) return E_POINTER;
+    long size = src->GetActualDataLength();
+    if (dst->GetSize() < size) return E_FAIL; // not enough space.
 
+    // copy all teh properties.
     hr = src->IsDiscontinuity();
     hr = dst->SetDiscontinuity((hr == S_OK)? TRUE : FALSE);
 
@@ -174,9 +156,9 @@ static HRESULT copyBuffer(IMediaSample* dst, IMediaSample* src)
         CoTaskMemFree(mt);
     }
 
-    long size = src->GetActualDataLength();
     dst->SetActualDataLength(size);
 
+    // copy the actual buffer.
     BYTE* pSrc = NULL;
     BYTE* pDst = NULL;
     hr = src->GetPointer(&pSrc);
@@ -189,7 +171,8 @@ static HRESULT copyBuffer(IMediaSample* dst, IMediaSample* src)
 }
 
 
-// IEnumPins
+//  IEnumPins object
+// 
 class FiltaaEnumPins : public IEnumPins
 {
 private:
@@ -217,7 +200,7 @@ public:
         AddRef();
     }
 
-    // IUnknown
+    // IUnknown methods
     STDMETHODIMP QueryInterface(REFIID iid, void** ppvObject) {
         if (ppvObject == NULL) return E_POINTER;
         if (iid == IID_IUnknown) {
@@ -241,7 +224,7 @@ public:
         return 0;
     }
 
-    // IEnumPins
+    // IEnumPins methods
     STDMETHODIMP Next(ULONG n, IPin** ppPins, ULONG* pFetched) {
         if (ppPins == NULL) return E_POINTER;
         if (n == 0) return E_INVALIDARG;
@@ -277,7 +260,8 @@ public:
 };
 
 
-// FiltaaEnumMediaTypes
+//  FiltaaEnumMediaTypes object
+// 
 class FiltaaEnumMediaTypes : public IEnumMediaTypes
 {
 private:
@@ -299,7 +283,7 @@ public:
         AddRef();
     }
     
-    // IUnknown
+    // IUnknown methods
     STDMETHODIMP QueryInterface(REFIID iid, void** ppvObject) {
         if (ppvObject == NULL) return E_POINTER;
         if (iid == IID_IUnknown) {
@@ -323,7 +307,7 @@ public:
         return 0;
     }
 
-    // IEnumMediaTypes
+    // IEnumMediaTypes methods
     STDMETHODIMP Next(ULONG n, AM_MEDIA_TYPE** ppMediaTypes, ULONG* pFetched) {
         if (ppMediaTypes == NULL) return E_POINTER;
         if (n == 0) return E_INVALIDARG;
@@ -361,7 +345,7 @@ public:
 };
 
 
-//  FiltaaInputPin
+//  FiltaaInputPin object
 //
 class FiltaaInputPin : public IPin, public IMemInputPin
 {
@@ -478,6 +462,7 @@ FiltaaInputPin::~FiltaaInputPin()
 }
 
 // IUnknown methods
+
 STDMETHODIMP FiltaaInputPin::QueryInterface(REFIID iid, void** ppvObject)
 {
     if (ppvObject == NULL) return E_POINTER;
@@ -497,6 +482,7 @@ STDMETHODIMP FiltaaInputPin::QueryInterface(REFIID iid, void** ppvObject)
 }
 
 // IPin methods
+
 STDMETHODIMP FiltaaInputPin::EnumMediaTypes(IEnumMediaTypes** ppEnum)
 {
     if (ppEnum == NULL) return E_POINTER;
@@ -627,7 +613,6 @@ STDMETHODIMP FiltaaInputPin::ReceiveMultiple(
 }
 
 
-
 //  Filtaa
 //
 Filtaa::Filtaa()
@@ -682,6 +667,7 @@ Filtaa::~Filtaa()
 }
 
 // IUnknown methods
+
 STDMETHODIMP Filtaa::QueryInterface(REFIID iid, void** ppvObject)
 {
     if (ppvObject == NULL) return E_POINTER;
@@ -703,6 +689,7 @@ STDMETHODIMP Filtaa::QueryInterface(REFIID iid, void** ppvObject)
 }
 
 // IBaseFilter methods
+
 STDMETHODIMP Filtaa::JoinFilterGraph(IFilterGraph* pGraph, LPCWSTR pName)
 {
     //fwprintf(stderr, L"Filtaa.JoinFilterGraph: pGraph=%p\n", pGraph);
@@ -818,7 +805,99 @@ STDMETHODIMP Filtaa::Stop()
     return S_OK;
 }
 
-// others
+// IMemInputPin methods
+
+HRESULT Filtaa::GetAllocatorRequirements(ALLOCATOR_PROPERTIES* pProp)
+{
+    if (pProp == NULL) return E_POINTER;
+    const AM_MEDIA_TYPE* mt = GetMediaType();
+    if (mt == NULL) return E_UNEXPECTED;
+    pProp->cBuffers = 1;
+    pProp->cbBuffer = _mediatype.lSampleSize;
+    pProp->cbAlign = 1;
+    pProp->cbPrefix = 0;
+    return S_OK;
+}
+
+HRESULT Filtaa::GetAllocator(IMemAllocator** ppAllocator)
+{
+    if (ppAllocator == NULL) return E_POINTER;
+    //fwprintf(stderr, L"Filtaa.GetAllocator\n");
+    return CoCreateInstance(
+        CLSID_MemoryAllocator, 0, CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(ppAllocator));
+}
+
+HRESULT Filtaa::NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly)
+{
+    HRESULT hr;
+    if (pAllocator == NULL) return E_POINTER;
+    ALLOCATOR_PROPERTIES given = {0};
+    hr = pAllocator->GetProperties(&given);
+    if (FAILED(hr)) return hr;
+
+    //fwprintf(stderr, L"Filtaa.NotifyAllocator: readOnly=%d, prop=%s\n", bReadOnly, prop2str(&given));
+    pAllocator->AddRef();
+    if (_allocatorIn != NULL) {
+        _allocatorIn->Release();
+    }
+    _allocatorIn = pAllocator;
+
+    if (_allocatorOut != NULL) {
+        _allocatorOut->Release();
+        _allocatorOut = NULL;
+    }
+    
+    ALLOCATOR_PROPERTIES req = {0};
+    hr = GetAllocatorRequirements(&req);
+    if (FAILED(hr)) return hr;
+    if (bReadOnly || !isPropAcceptable(&req, &given)) {
+        // Have my own allocator.
+        hr = GetAllocator(&_allocatorOut);
+        if (FAILED(hr)) return hr;
+        hr = _allocatorOut->SetProperties(&req, &given);
+        if (FAILED(hr)) return hr;
+        if (!isPropAcceptable(&req, &given)) return E_FAIL;
+    }
+    
+    return S_OK;
+}
+
+HRESULT Filtaa::Receive(IMediaSample* pSample)
+{
+    HRESULT hr;
+    if (pSample == NULL) return E_POINTER;
+    
+    //fwprintf(stderr, L"Filtaa.Receive: %p\n", pSample);
+    IMediaSample* pRWSample = NULL;
+    if (_allocatorOut != NULL) {
+        hr = _allocatorOut->GetBuffer(&pRWSample, NULL, NULL, 0);
+        if (FAILED(hr)) return hr;
+        hr = copyMediaSample(pRWSample, pSample);
+        if (FAILED(hr)) return hr;
+    } else {
+        pRWSample = pSample;
+        pRWSample->AddRef();
+    }
+    
+    AM_MEDIA_TYPE* mt = NULL;
+    hr = pRWSample->GetMediaType(&mt);
+    if (mt == NULL || isMediaTypeEqual(&_mediatype, mt)) {
+        Transform(pRWSample);
+    }
+    if (mt != NULL) {
+        eraseMediaType(mt);
+        CoTaskMemFree(mt);
+    }
+    if (_transport != NULL) {
+        _transport->Receive(pRWSample);
+    }
+    pRWSample->Release();
+    
+    return S_OK;
+}
+
+// Helper methods
 
 const AM_MEDIA_TYPE* Filtaa::GetMediaType()
 {
@@ -915,98 +994,53 @@ HRESULT Filtaa::NewSegment(REFERENCE_TIME tStart, REFERENCE_TIME tStop, double d
     return S_OK;
 }
 
+// The image processing part
 
-// IMemInputPin methods
-HRESULT Filtaa::GetAllocatorRequirements(ALLOCATOR_PROPERTIES* pProp)
+// align32: fix the size for 32-bit boundary.
+static inline size_t align32(size_t x)
 {
-    if (pProp == NULL) return E_POINTER;
-    const AM_MEDIA_TYPE* mt = GetMediaType();
-    if (mt == NULL) return E_UNEXPECTED;
-    pProp->cBuffers = 1;
-    pProp->cbBuffer = _mediatype.lSampleSize;
-    pProp->cbAlign = 1;
-    pProp->cbPrefix = 0;
-    return S_OK;
+    return (((x+3) >> 4) << 4);
 }
 
-HRESULT Filtaa::GetAllocator(IMemAllocator** ppAllocator)
+// getLuma: get the luminance value for a RGB pixel.
+static inline int getLuma(const RGBTRIPLE* p)
 {
-    if (ppAllocator == NULL) return E_POINTER;
-    //fwprintf(stderr, L"Filtaa.GetAllocator\n");
-    return CoCreateInstance(
-        CLSID_MemoryAllocator, 0, CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(ppAllocator));
+    return (p->rgbtRed*76 + p->rgbtGreen*150 + p->rgbtBlue*30) >> 8;
 }
 
-HRESULT Filtaa::NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly)
+// getThreshold: calculate the B/W threshold with the Otsu's method.
+static int getThreshold(const ULONG* hist)
 {
-    HRESULT hr;
-    if (pAllocator == NULL) return E_POINTER;
-    ALLOCATOR_PROPERTIES given = {0};
-    hr = pAllocator->GetProperties(&given);
-    if (FAILED(hr)) return hr;
+    ULONG total = 0, sum = 0;
+    for (int i = 0; i < 256; i++) {
+        total += hist[i];
+        sum += i*hist[i];
+    }
 
-    //fwprintf(stderr, L"Filtaa.NotifyAllocator: readOnly=%d, prop=%s\n", bReadOnly, prop2str(&given));
-    pAllocator->AddRef();
-    if (_allocatorIn != NULL) {
-        _allocatorIn->Release();
+    ULONG wb = 0, sb = 0;
+    double max = 0;
+    int threshold = 0;
+    for (int i = 0; i < 256; i++) {
+        wb += hist[i];
+        if (wb == 0) continue;
+        ULONG wf = total - wb;
+        if (wf == 0) break;
+        sb += i*hist[i];
+        ULONG sf = sum - sb;
+        // Note: these values can easily exceed 2^32.
+        double mb = (double)sb/(double)wb;
+        double mf = (double)sf/(double)wf;
+        double v = (double)wb*(double)wf*(mb-mf)*(mb-mf);
+        if (max < v) {
+            max = v;
+            threshold = i;
+        }
     }
-    _allocatorIn = pAllocator;
 
-    if (_allocatorOut != NULL) {
-        _allocatorOut->Release();
-        _allocatorOut = NULL;
-    }
-    
-    ALLOCATOR_PROPERTIES req = {0};
-    hr = GetAllocatorRequirements(&req);
-    if (FAILED(hr)) return hr;
-    if (bReadOnly || !isPropAcceptable(&req, &given)) {
-        // Have my own allocator.
-        hr = GetAllocator(&_allocatorOut);
-        if (FAILED(hr)) return hr;
-        hr = _allocatorOut->SetProperties(&req, &given);
-        if (FAILED(hr)) return hr;
-        if (!isPropAcceptable(&req, &given)) return E_FAIL;
-    }
-    
-    return S_OK;
+    return threshold;
 }
 
-HRESULT Filtaa::Receive(IMediaSample* pSample)
-{
-    HRESULT hr;
-    if (pSample == NULL) return E_POINTER;
-    
-    //fwprintf(stderr, L"Filtaa.Receive: %p\n", pSample);
-    IMediaSample* pRWSample = NULL;
-    if (_allocatorOut != NULL) {
-        hr = _allocatorOut->GetBuffer(&pRWSample, NULL, NULL, 0);
-        if (FAILED(hr)) return hr;
-        hr = copyBuffer(pRWSample, pSample);
-        if (FAILED(hr)) return hr;
-    } else {
-        pRWSample = pSample;
-        pRWSample->AddRef();
-    }
-    
-    AM_MEDIA_TYPE* mt = NULL;
-    hr = pRWSample->GetMediaType(&mt);
-    if (mt == NULL || isMediaTypeEqual(&_mediatype, mt)) {
-        Transform(pRWSample);
-    }
-    if (mt != NULL) {
-        eraseMediaType(mt);
-        CoTaskMemFree(mt);
-    }
-    if (_transport != NULL) {
-        _transport->Receive(pRWSample);
-    }
-    pRWSample->Release();
-    
-    return S_OK;
-}
-
+// Transform: modify the IMediaSample in-place.
 HRESULT Filtaa::Transform(IMediaSample* pSample)
 {
     HRESULT hr;

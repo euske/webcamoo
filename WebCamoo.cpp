@@ -1,17 +1,17 @@
+//  WebCamoo.cpp
+//
+//  This code is based on the "playcap" sample from Microsoft SDK,
+//  but the significant portion was changed or rewritten.
+//
+
+// --- Start of Microsoft Credit ---
 // THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF
 // ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO
 // THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
 // PARTICULAR PURPOSE.
 //
 // Copyright (c) Microsoft Corporation. All rights reserved.
-
-//------------------------------------------------------------------------------
-// File: WebCamoo.cpp
-//
-// Desc: DirectShow sample code - a very basic application using video capture
-//       devices.  It creates a window and uses the first available capture
-//       device to render and preview video capture data.
-//------------------------------------------------------------------------------
+// --- End of Microsoft Credit ---
 
 #define _WIN32_WINNT 0x0500
 

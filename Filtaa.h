@@ -1,14 +1,16 @@
 // -*- mode: c++ -*-
+//  Filtaa.h
+//
 
 #pragma once
-#include <stdio.h>
 #include <windows.h>
 #include <dshow.h>
 
-#include "WebCamoo.h"
 
 class FiltaaInputPin;
 
+//  Filtaa: performs image manipulation on a DirectShow stream.
+//
 class Filtaa : public IBaseFilter
 {
 private:
@@ -26,6 +28,7 @@ private:
     ULONG* _hist;
     
     ~Filtaa();
+    HRESULT Transform(IMediaSample* pSample);
     
 public:
     Filtaa();
@@ -66,7 +69,7 @@ public:
     STDMETHODIMP FindPin(LPCWSTR Id, IPin** ppPin);
     STDMETHODIMP QueryFilterInfo(FILTER_INFO* pInfo);
 
-    // Others
+    // Helper Methods
     const AM_MEDIA_TYPE* GetMediaType();
     HRESULT Connect(IPin* pReceivePin, const AM_MEDIA_TYPE* mt);
     HRESULT ReceiveConnection(const AM_MEDIA_TYPE* mt);
@@ -81,5 +84,4 @@ public:
     HRESULT GetAllocator(IMemAllocator** ppAllocator);
     HRESULT NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly);
     HRESULT Receive(IMediaSample* pSample);
-    HRESULT Transform(IMediaSample* pSample);
 };

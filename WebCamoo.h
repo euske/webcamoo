@@ -1,16 +1,17 @@
+//  WebCamoo.h
+//
+//  This code is based on the "playcap" sample from Microsoft SDK,
+//  but the significant portion was changed or rewritten.
+//
+
+// --- Start of Microsoft Credit ---
 // THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF
 // ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO
 // THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A
 // PARTICULAR PURPOSE.
 //
 // Copyright (c) Microsoft Corporation. All rights reserved.
-
-//------------------------------------------------------------------------------
-// File: WebCamoo.h
-//
-// Desc: DirectShow sample code - header file for WebCamoo previewer
-//       application.
-//------------------------------------------------------------------------------
+// --- End of Microsoft Credit ---
 
 #pragma once
 
