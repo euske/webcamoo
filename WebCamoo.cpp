@@ -315,16 +315,15 @@ public:
     WebCamoo();
     ~WebCamoo();
 
-    HRESULT Initialize(HWND hWnd);
+    HRESULT InitializeCOM();
+    HRESULT InitializeWindow(HWND hWnd);
+    void UninitializeWindow(void);
     void DoCommand(UINT cmd);
-    void Uninitialize(void);
     void HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 };
 
 WebCamoo::WebCamoo()
 {
-    HRESULT hr;
-
     _pGraph = NULL;
     _pCapture = NULL;
     _dwGraphRegister = 0;
@@ -346,22 +345,27 @@ WebCamoo::WebCamoo()
     _notify = NULL;
     _pVideoMoniker = NULL;
     _pAudioMoniker = NULL;
+}
+
+HRESULT WebCamoo::InitializeCOM()
+{
+    HRESULT hr;
 
     // Create the filter graph.
     hr = CoCreateInstance(
         CLSID_FilterGraph, NULL, CLSCTX_INPROC,
         IID_PPV_ARGS(&_pGraph));
-    if (FAILED(hr)) throw std::exception("Unable to initialize a FilterGraph.");
+    if (FAILED(hr)) return hr;
 
     // Create the capture graph builder.
     hr = CoCreateInstance(
         CLSID_CaptureGraphBuilder2, NULL, CLSCTX_INPROC,
         IID_PPV_ARGS(&_pCapture));
-    if (FAILED(hr)) throw std::exception("Unable to initialize a GraphBuilder.");
+    if (FAILED(hr)) return hr;
 
     // Attach the filter graph to the capture graph.
     hr = _pCapture->SetFiltergraph(_pGraph);
-    if (FAILED(hr)) throw std::exception("Unable to attach the Graph to the Builder.");
+    if (FAILED(hr)) return hr;
 
     if (REGISTER_FILTERGRAPH) {
         // Add our graph to the running object table, which will allow
@@ -376,23 +380,24 @@ WebCamoo::WebCamoo()
     hr = CoCreateInstance(
         CLSID_VideoRenderer, NULL, CLSCTX_INPROC,
         IID_PPV_ARGS(&_pVideoSink));
-    if (FAILED(hr)) throw std::exception("Unable to create a Video Renderer.");
+    if (FAILED(hr)) return hr;
 
     // Obtain interfaces for Video Window.
     hr = _pVideoSink->QueryInterface(
         IID_PPV_ARGS(&_pVW));
-    if (FAILED(hr)) throw std::exception("Unable to create a Video Window.");
+    if (FAILED(hr)) return hr;
     
     hr = _pGraph->QueryInterface(
         IID_PPV_ARGS(&_pME));
-    if (FAILED(hr)) throw std::exception("Unable to create a Media Event.");
+    if (FAILED(hr)) return hr;
 
     // Create the audio output.
     hr = CoCreateInstance(
         CLSID_DSoundRender, NULL, CLSCTX_INPROC,
         IID_PPV_ARGS(&_pAudioSink));
-    if (FAILED(hr)) throw std::exception("Unable to create a Audio Renderer.");
-    
+    if (FAILED(hr)) return hr;
+
+    return hr;
 }
 
 WebCamoo::~WebCamoo()
@@ -733,7 +738,7 @@ HRESULT WebCamoo::SelectAudio(IMoniker* pMoniker)
     return S_OK;
 }
 
-HRESULT WebCamoo::Initialize(HWND hWnd)
+HRESULT WebCamoo::InitializeWindow(HWND hWnd)
 {
     HRESULT hr;
 
@@ -756,7 +761,7 @@ HRESULT WebCamoo::Initialize(HWND hWnd)
     return hr;
 }
 
-void WebCamoo::Uninitialize(void)
+void WebCamoo::UninitializeWindow(void)
 {
     HRESULT hr;
     IMediaControl* pMC = NULL;
@@ -1081,7 +1086,7 @@ void WebCamoo::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         break;
         
     case WM_CLOSE:
-        Uninitialize();
+        UninitializeWindow();
         DestroyWindow(_hWnd);
         break;
     }
@@ -1108,7 +1113,7 @@ static LRESULT CALLBACK WndMainProc(
             WebCamoo* self = (WebCamoo*)(cs->lpCreateParams);
             if (self != NULL) {
                 SetWindowLongPtr(hWnd, GWLP_USERDATA, (LONG_PTR)self);
-                hr = self->Initialize(hWnd);
+                hr = self->InitializeWindow(hWnd);
                 if (FAILED(hr)) return -1;
             }
         }
@@ -1144,6 +1149,7 @@ int WebCamooMain(
     // Initialize App.
     WebCamoo* app = new WebCamoo();
     if (!app) exit(111);
+    if (FAILED(app->InitializeCOM())) exit(111);
 
     // Register the window class.
     ATOM atom;
