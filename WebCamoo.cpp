@@ -283,7 +283,7 @@ class WebCamoo
     IBaseFilter* _pAudioSink;
     Filtaa* _pFiltaa;
 
-    IVideoWindow* _pVW;
+    IVMRWindowlessControl* _pVW;
     IMediaEventEx* _pME;
     FILTER_STATE _state;
     long _videoWidth;
@@ -378,9 +378,19 @@ HRESULT WebCamoo::InitializeCOM()
 
     // Create the video window.
     hr = CoCreateInstance(
-        CLSID_VideoRenderer, NULL, CLSCTX_INPROC,
+        CLSID_VideoMixingRenderer, NULL, CLSCTX_INPROC,
         IID_PPV_ARGS(&_pVideoSink));
     if (FAILED(hr)) return hr;
+
+    {
+        // Make it windowless mode.
+        IVMRFilterConfig* pConfig = NULL;
+        hr = _pVideoSink->QueryInterface(IID_PPV_ARGS(&pConfig));
+        if (FAILED(hr)) return hr;
+        hr = pConfig->SetRenderingMode(VMRMode_Windowless);
+        if (FAILED(hr)) return hr;
+        pConfig->Release();
+    }
 
     // Obtain interfaces for Video Window.
     hr = _pVideoSink->QueryInterface(
@@ -558,7 +568,6 @@ HRESULT WebCamoo::CleanupFilterGraph()
     HRESULT hr;
     log(L"CleanupFilterGraph");
 
-    _pVW->put_Visible(OAFALSE);
     _videoWidth = 0;
     _videoHeight = 0;
     
@@ -621,27 +630,17 @@ HRESULT WebCamoo::BuildFilterGraph()
         }
 
         // Set the video window to be a child of the main window.
-        hr = _pVW->put_Owner((OAHWND)_hWnd);
+        hr = _pVW->SetVideoClippingWindow(_hWnd);
         if (FAILED(hr)) return hr;
     
-        // Set video window style
-        hr = _pVW->put_WindowStyle(WS_CHILD | WS_CLIPCHILDREN);
-        if (FAILED(hr)) return hr;
-
         // Obtain the native video size.
-        IBasicVideo* pVideo = NULL;
-        hr = _pVideoSink->QueryInterface(IID_PPV_ARGS(&pVideo));
+        hr = _pVW->GetNativeVideoSize(&_videoWidth, &_videoHeight,
+                                      NULL, NULL);
         if (FAILED(hr)) return hr;
-        pVideo->GetVideoSize(&_videoWidth, &_videoHeight);
-        pVideo->Release();
         
         // Use helper function to position video window in client rect
         // of main application window.
         ResizeVideoWindow();
-
-        // Make the video window visible, now that it is properly positioned.
-        hr = _pVW->put_Visible(OATRUE);
-        if (FAILED(hr)) return hr;
     }
 
     if (_pAudioSrc != NULL &&
@@ -777,13 +776,6 @@ void WebCamoo::UninitializeWindow(void)
     SelectVideo(NULL);
     SelectAudio(NULL);
         
-    // Relinquish ownership (IMPORTANT!) of the video window.
-    // Failing to call put_Owner can lead to assert failures within
-    // the video renderer, as it still assumes that it has a valid
-    // parent window.
-    _pVW->put_Visible(OAFALSE);
-    _pVW->put_Owner(NULL);
-
     // Stop receiving events.
     _pME->SetNotifyWindow(NULL, WM_GRAPHNOTIFY, 0);
 
@@ -808,9 +800,9 @@ HRESULT WebCamoo::ResizeVideoWindow(void)
     // Resize the video preview window to match owner window size
     RECT rc;
     GetClientRect(_hWnd, &rc);
-    int w0 = rc.right - rc.left;
-    int h0 = rc.bottom - rc.top;
     if (GetMenuItemState(IDM_KEEP_ASPECT_RATIO)) {
+        int w0 = rc.right - rc.left;
+        int h0 = rc.bottom - rc.top;
         int w1 = _videoWidth;
         int h1 = _videoHeight;
         if (w0*h1 < w1*h0) {
@@ -822,13 +814,17 @@ HRESULT WebCamoo::ResizeVideoWindow(void)
             w1 = w1*h0/h1;
             h1 = h0;
         }
-        hr = _pVW->SetWindowPosition((rc.left+rc.right-w1)/2,
-                                     (rc.top+rc.bottom-h1)/2,
-                                     w1, h1);
+        SetRect(&rc,
+                (rc.left+rc.right-w1)/2,
+                (rc.top+rc.bottom-h1)/2,
+                (rc.left+rc.right+w1)/2,
+                (rc.top+rc.bottom+h1)/2);
     } else {
         // Make the preview video fill our window.
-        hr = _pVW->SetWindowPosition(rc.left, rc.top, w0, h0);
+        ;
     }
+    
+    hr = _pVW->SetVideoPosition(NULL, &rc);
     if (FAILED(hr)) return hr;
 
     return S_OK;
@@ -1057,6 +1053,15 @@ void WebCamoo::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         ResizeVideoWindow();
         break;
         
+    case WM_PAINT:
+        if (_pVW != NULL) {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hWnd, &ps);
+            _pVW->RepaintVideo(hWnd, hdc);
+            EndPaint(hWnd, &ps);
+        }
+        break;
+        
     case WM_WINDOWPOSCHANGED:
         if (!IsWindowVisible(_hWnd) || IsIconic(_hWnd)) {
             UpdatePlayState(State_Stopped);
@@ -1091,11 +1096,6 @@ void WebCamoo::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         UninitializeWindow();
         DestroyWindow(_hWnd);
         break;
-    }
-
-    // Pass this message to the video window for notification of system changes.
-    if (_pVW != NULL) {
-        _pVW->NotifyOwnerMessage((LONG_PTR)_hWnd, uMsg, wParam, lParam);
     }
 }
 
