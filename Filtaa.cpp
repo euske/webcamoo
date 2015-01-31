@@ -128,13 +128,19 @@ static HRESULT copyMediaSample(IMediaSample* dst, IMediaSample* src)
 
     // copy all teh properties.
     hr = src->IsDiscontinuity();
-    hr = dst->SetDiscontinuity((hr == S_OK)? TRUE : FALSE);
+    if (SUCCEEDED(hr)) {
+        hr = dst->SetDiscontinuity((hr == S_OK)? TRUE : FALSE);
+    }
 
     hr = src->IsPreroll();
-    hr = dst->SetPreroll((hr == S_OK)? TRUE : FALSE);
+    if (SUCCEEDED(hr)) {
+        hr = dst->SetPreroll((hr == S_OK)? TRUE : FALSE);
+    }
 
     hr = src->IsSyncPoint();
-    hr = dst->SetSyncPoint((hr == S_OK)? TRUE : FALSE);
+    if (SUCCEEDED(hr)) {
+        hr = dst->SetSyncPoint((hr == S_OK)? TRUE : FALSE);
+    }
 
     LONGLONG tStart, tEnd;
     hr = src->GetMediaTime(&tStart, &tEnd);
@@ -150,21 +156,25 @@ static HRESULT copyMediaSample(IMediaSample* dst, IMediaSample* src)
 
     AM_MEDIA_TYPE* mt = NULL;
     hr = src->GetMediaType(&mt);
-    if (mt != NULL) {
-        hr = dst->SetMediaType(mt);
-        eraseMediaType(mt);
-        CoTaskMemFree(mt);
+    if (SUCCEEDED(hr)) {
+        if (mt != NULL) {
+            hr = dst->SetMediaType(mt);
+            eraseMediaType(mt);
+            CoTaskMemFree(mt);
+        }
     }
-
-    dst->SetActualDataLength(size);
+    
+    hr = dst->SetActualDataLength(size);
 
     // copy the actual buffer.
     BYTE* pSrc = NULL;
     BYTE* pDst = NULL;
     hr = src->GetPointer(&pSrc);
-    hr = dst->GetPointer(&pDst);
-    if (pSrc != NULL && pDst != NULL) {
-        CopyMemory(pDst, pSrc, size);
+    if (SUCCEEDED(hr)) {
+        hr = dst->GetPointer(&pDst);
+        if (SUCCEEDED(hr)) {
+            CopyMemory(pDst, pSrc, size);
+        }
     }
     
     return S_OK;
@@ -508,7 +518,7 @@ STDMETHODIMP FiltaaInputPin::Connect(IPin* pReceivePin, const AM_MEDIA_TYPE* mt)
     // assert(_connected == NULL);
     _connected = pReceivePin;
     _connected->AddRef();
-    return hr;
+    return S_OK;
 }
 
 STDMETHODIMP FiltaaInputPin::ReceiveConnection(IPin* pConnector, const AM_MEDIA_TYPE* mt)
@@ -559,7 +569,6 @@ STDMETHODIMP FiltaaInputPin::Disconnect()
 
 STDMETHODIMP FiltaaInputPin::QueryId(LPWSTR* Id)
 {
-    HRESULT hr;
     if (Id == NULL) return E_POINTER;
     LPWSTR dst = (LPWSTR)CoTaskMemAlloc(sizeof(WCHAR)*(lstrlen(_name)+1));
     if (dst == NULL) return E_OUTOFMEMORY;
@@ -602,7 +611,7 @@ STDMETHODIMP FiltaaInputPin::ReceiveMultiple(
     long n = 0;
     for (long i = 0; i < nSamples; i++) {
         hr = Receive(pSamples[i]);
-        if (FAILED(hr)) return hr;
+        if (FAILED(hr)) break;
         n++;
     }
     if (nSamplesProcessed != NULL) {
@@ -874,7 +883,10 @@ HRESULT Filtaa::Receive(IMediaSample* pSample)
         hr = _allocatorOut->GetBuffer(&pRWSample, NULL, NULL, 0);
         if (FAILED(hr)) return hr;
         hr = copyMediaSample(pRWSample, pSample);
-        if (FAILED(hr)) return hr;
+        if (FAILED(hr)) {
+            pRWSample->Release();
+            return hr;
+        }
     } else {
         pRWSample = pSample;
         pRWSample->AddRef();

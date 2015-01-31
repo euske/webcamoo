@@ -601,14 +601,16 @@ HRESULT WebCamoo::BuildFilterGraph()
         if (GetMenuItemState(IDM_THRESHOLDING)) {
             IBaseFilter* pFilter = NULL;
             hr = _pFiltaa->QueryInterface(IID_PPV_ARGS(&pFilter));
+            if (SUCCEEDED(hr)) {
+                hr = _pGraph->AddFilter(pFilter, L"Filtaa");
+                if (SUCCEEDED(hr)) {
+                    hr = _pCapture->RenderStream(
+                        &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Video,
+                        _pVideoSrc, pFilter, _pVideoSink);
+                }
+                pFilter->Release();
+            }
             if (FAILED(hr)) return hr;
-            hr = _pGraph->AddFilter(pFilter, L"Filtaa");
-            if (FAILED(hr)) return hr;
-            hr = _pCapture->RenderStream(
-                &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Video,
-                _pVideoSrc, pFilter, _pVideoSink);
-            if (FAILED(hr)) return hr;
-            pFilter->Release();
         } else {
             // Render the preview pin on the video capture filter.
             // Use this instead of _pGraph->RenderFile.
