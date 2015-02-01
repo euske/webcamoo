@@ -1,39 +1,37 @@
 #include <windows.h>
 #include "webcamoo.h"
 
-/////////////////////////////////////////////////////////////////////////////
-//
-// Version
+//  Version Info.
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 9,0,0,0
- PRODUCTVERSION 9,0,0,0
+ FILEVERSION 1,0,0,0
+ PRODUCTVERSION 1,0,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
- FILEFLAGS 0x1L
+ FILEFLAGS VS_FF_DEBUG
 #else
  FILEFLAGS 0x0L
 #endif
- FILEOS 0x4L
- FILETYPE 0x1L
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
  FILESUBTYPE 0x0L
 BEGIN
     BLOCK "StringFileInfo"
     BEGIN
         BLOCK "040904b0"
         BEGIN
-            VALUE "Comments", "DirectShow Sample\0"
-            VALUE "CompanyName", "Microsoft\0"
+            VALUE "Comments", "Web Camera Blackboard Thingy\0"
+            VALUE "CompanyName", "Yusuke Shinyama\0"
             VALUE "FileDescription", "WebCamoo Application\0"
             VALUE "FileVersion", "9.00\0"
             VALUE "InternalName", "WebCamoo\0"
-            VALUE "LegalCopyright", "Copyright (c) Microsoft Corporation\0"
+            VALUE "LegalCopyright", "Copyright (c) Yusuke Shinyama\0"
             VALUE "LegalTrademarks", "\0"
             VALUE "OriginalFilename", "WebCamoo.EXE\0"
             VALUE "PrivateBuild", "\0"
-            VALUE "ProductName", "DirectX 9 SDK\0"
-            VALUE "ProductVersion", "9.0\0"
+            VALUE "ProductName", "WebCamoo\0"
+            VALUE "ProductVersion", "1.0\0"
             VALUE "SpecialBuild", "\0"
         END
     END
@@ -43,6 +41,9 @@ BEGIN
     END
 END
 
+
+//  Menu Accelerators
+//
 IDM_ACCEL ACCELERATORS
 BEGIN
     "^B", IDM_THRESHOLDING
@@ -51,6 +52,9 @@ BEGIN
     VK_OEM_MINUS, IDM_DEC_THRESHOLD, VIRTKEY, CONTROL
 END
 
+
+//  Menus
+//
 IDM_MENU MENU
 BEGIN
     POPUP "&File"
