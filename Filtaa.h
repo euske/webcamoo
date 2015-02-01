@@ -26,9 +26,16 @@ private:
     IMemAllocator* _allocatorIn;
     IMemAllocator* _allocatorOut;
     ULONG* _hist;
+
+    int _threshold;
+    int _autoThreshold;
+    RGBTRIPLE _fgColor;
+    RGBTRIPLE _bgColor;
     
     ~Filtaa();
-    HRESULT Transform(IMediaSample* pSample);
+    HRESULT BeginTransform();
+    HRESULT EndTransform();
+    HRESULT TransformSample(IMediaSample* pSample);
     
 public:
     Filtaa();
@@ -69,8 +76,17 @@ public:
     STDMETHODIMP FindPin(LPCWSTR Id, IPin** ppPin);
     STDMETHODIMP QueryFilterInfo(FILTER_INFO* pInfo);
 
-    // Helper Methods
+    // Filtaa Methods
+    void SetThreshold(int threshold)
+        { _threshold = threshold; }
+    int GetThreshold()
+        { return _threshold; }
+    int GetAutoThreshold()
+        { return _autoThreshold; }
+
+    // Helper Methods (for internal use)
     const AM_MEDIA_TYPE* GetMediaType();
+    HRESULT QueryAccept(const AM_MEDIA_TYPE* mt);
     HRESULT Connect(IPin* pReceivePin, const AM_MEDIA_TYPE* mt);
     HRESULT ReceiveConnection(const AM_MEDIA_TYPE* mt);
     HRESULT DisconnectInput();

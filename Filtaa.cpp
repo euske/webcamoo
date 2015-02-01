@@ -579,7 +579,7 @@ STDMETHODIMP FiltaaInputPin::QueryId(LPWSTR* Id)
 
 STDMETHODIMP FiltaaInputPin::QueryAccept(const AM_MEDIA_TYPE* mt)
 {
-    return (isMediaTypeAcceptable(mt))? S_OK : S_FALSE;
+    return _filter->QueryAccept(mt);
 }
 
 STDMETHODIMP FiltaaInputPin::QueryDirection(PIN_DIRECTION* pPinDir)
@@ -638,6 +638,7 @@ Filtaa::Filtaa()
     _allocatorIn = NULL;
     _allocatorOut = NULL;
     _hist = (ULONG*)CoTaskMemAlloc(sizeof(ULONG)*256);
+    _threshold = -1;
     AddRef();
 }
 
@@ -783,6 +784,7 @@ STDMETHODIMP Filtaa::Run(REFERENCE_TIME tStart)
             hr = _allocatorOut->Commit();
             if (FAILED(hr)) return hr;
         }
+        BeginTransform();
     }
     _state = State_Running;
     return S_OK;
@@ -796,6 +798,7 @@ STDMETHODIMP Filtaa::Pause()
             hr = _allocatorOut->Commit();
             if (FAILED(hr)) return hr;
         }
+        BeginTransform();
     }
     _state = State_Paused;
     return S_OK;
@@ -805,6 +808,7 @@ STDMETHODIMP Filtaa::Stop()
 {
     HRESULT hr;
     if (_state != State_Stopped) {
+        EndTransform();
         if (_allocatorOut != NULL) {
             hr = _allocatorOut->Decommit();
             if (FAILED(hr)) return hr;
@@ -895,7 +899,7 @@ HRESULT Filtaa::Receive(IMediaSample* pSample)
     AM_MEDIA_TYPE* mt = NULL;
     hr = pRWSample->GetMediaType(&mt);
     if (mt == NULL || isMediaTypeEqual(&_mediatype, mt)) {
-        Transform(pRWSample);
+        TransformSample(pRWSample);
     }
     if (mt != NULL) {
         eraseMediaType(mt);
@@ -918,6 +922,11 @@ const AM_MEDIA_TYPE* Filtaa::GetMediaType()
     } else {
         return &_mediatype;
     }
+}
+
+HRESULT Filtaa::QueryAccept(const AM_MEDIA_TYPE* mt)
+{
+    return (isMediaTypeAcceptable(mt))? S_OK : S_FALSE;
 }
 
 HRESULT Filtaa::Connect(IPin* pReceivePin, const AM_MEDIA_TYPE* mt)
@@ -1020,8 +1029,8 @@ static inline int getLuma(const RGBTRIPLE* p)
     return (p->rgbtRed*76 + p->rgbtGreen*150 + p->rgbtBlue*30) >> 8;
 }
 
-// getThreshold: calculate the B/W threshold with the Otsu's method.
-static int getThreshold(const ULONG* hist)
+// getAutoThreshold: calculate the B/W threshold with the Otsu's method.
+static int getAutoThreshold(const ULONG* hist)
 {
     ULONG total = 0, sum = 0;
     for (int i = 0; i < 256; i++) {
@@ -1052,8 +1061,23 @@ static int getThreshold(const ULONG* hist)
     return threshold;
 }
 
-// Transform: modify the IMediaSample in-place.
-HRESULT Filtaa::Transform(IMediaSample* pSample)
+HRESULT Filtaa::BeginTransform()
+{
+    const RGBTRIPLE BLACK = {0,0,0};
+    const RGBTRIPLE WHITE = {255,255,255};
+    _fgColor = BLACK;
+    _bgColor = WHITE;
+    _autoThreshold = 128;
+    return S_OK;
+}
+
+HRESULT Filtaa::EndTransform()
+{
+    return S_OK;
+}
+
+// TransformSample: modify the IMediaSample in-place.
+HRESULT Filtaa::TransformSample(IMediaSample* pSample)
 {
     HRESULT hr;
     BYTE* buf = NULL;
@@ -1065,11 +1089,8 @@ HRESULT Filtaa::Transform(IMediaSample* pSample)
     int width = vi->bmiHeader.biWidth;
     int height = vi->bmiHeader.biHeight;
     size_t linesize = align32(width * 3);
-
-    RGBTRIPLE fgColor = {0,0,0};
-    RGBTRIPLE bgColor = {255,255,255};
+    int threshold = (0 <= _threshold)? _threshold : _autoThreshold;
     
-    int threshold = getThreshold(_hist);
     memset(_hist, 0, sizeof(ULONG)*256);
     for (int y = 0; y < height; y++) {
         RGBTRIPLE* p = (RGBTRIPLE*)line;
@@ -1077,14 +1098,15 @@ HRESULT Filtaa::Transform(IMediaSample* pSample)
             int lum = getLuma(p);
             _hist[lum]++;
             if (lum < threshold) {
-                *p = fgColor;
+                *p = _fgColor;
             } else {
-                *p = bgColor;
+                *p = _bgColor;
             }
             p++;
         }
         line += linesize;
     }
+    _autoThreshold = getAutoThreshold(_hist);
     
     return S_OK;
 }
