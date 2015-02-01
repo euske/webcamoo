@@ -36,6 +36,7 @@
 //  Constants
 //
 const LPCWSTR APPLICATION_NAME = L"WebCamoo";
+const int THRESHOLD_DELTA = 5;
 
 // Application-defined message to notify app of filtergraph events.
 const UINT WM_GRAPHNOTIFY = WM_APP+1;
@@ -590,16 +591,10 @@ void WebCamoo::UpdateOutputMenu()
     } else {
         setMenuItemDisabled(hMenu, IDM_KEEP_ASPECT_RATIO, FALSE);
         setMenuItemDisabled(hMenu, IDM_THRESHOLDING, FALSE);
-        setMenuItemDisabled(hMenu, IDM_AUTO_THRESHOLD, TRUE);
-        setMenuItemDisabled(hMenu, IDM_INC_THRESHOLD, TRUE);
-        setMenuItemDisabled(hMenu, IDM_DEC_THRESHOLD, TRUE);
-        if (isMenuItemChecked(hMenu, IDM_THRESHOLDING)) {
-            setMenuItemDisabled(hMenu, IDM_AUTO_THRESHOLD, FALSE);
-            if (!isMenuItemChecked(hMenu, IDM_AUTO_THRESHOLD)) {
-                setMenuItemDisabled(hMenu, IDM_INC_THRESHOLD, FALSE);
-                setMenuItemDisabled(hMenu, IDM_DEC_THRESHOLD, FALSE);
-            }
-        }
+        BOOL thresholding = isMenuItemChecked(hMenu, IDM_THRESHOLDING);
+        setMenuItemDisabled(hMenu, IDM_AUTO_THRESHOLD, !thresholding);
+        setMenuItemDisabled(hMenu, IDM_INC_THRESHOLD, !thresholding);
+        setMenuItemDisabled(hMenu, IDM_DEC_THRESHOLD, !thresholding);
     }
 }
 
@@ -996,6 +991,7 @@ HRESULT WebCamoo::OpenPinProperties()
 
 void WebCamoo::DoCommand(UINT cmd)
 {
+    HMENU hMenu = findSubMenu(GetMenu(_hWnd), cmd);
     WCHAR name[1024];
     MENUITEMINFO mii = {0};
     mii.cbSize = sizeof(mii);
@@ -1007,17 +1003,59 @@ void WebCamoo::DoCommand(UINT cmd)
         SendMessage(_hWnd, WM_CLOSE, 0, 0);
         break;
 
+    case IDM_KEEP_ASPECT_RATIO:
+        toggleMenuItemChecked(hMenu, cmd);
+        ResizeVideoWindow();
+        break;
+
     case IDM_THRESHOLDING:
         UpdatePlayState(State_Stopped);
-        toggleMenuItemChecked(GetMenu(_hWnd), cmd);
+        toggleMenuItemChecked(hMenu, cmd);
         CleanupFilterGraph();
         BuildFilterGraph();
         UpdatePlayState(State_Running);
         break;
 
-    case IDM_KEEP_ASPECT_RATIO:
-        toggleMenuItemChecked(GetMenu(_hWnd), cmd);
-        ResizeVideoWindow();
+    case IDM_AUTO_THRESHOLD:
+        toggleMenuItemChecked(hMenu, cmd);
+        if (isMenuItemChecked(hMenu, cmd)) {
+            _pFiltaa->SetThreshold(-1);
+        } else {
+            int threshold = _pFiltaa->GetAutoThreshold();
+            _pFiltaa->SetThreshold(threshold);
+        }
+        UpdateOutputMenu();
+        break;
+
+    case IDM_INC_THRESHOLD:
+        {
+            int threshold;
+            if (isMenuItemChecked(hMenu, IDM_AUTO_THRESHOLD)) {
+                toggleMenuItemChecked(hMenu, IDM_AUTO_THRESHOLD);
+                threshold = _pFiltaa->GetAutoThreshold();
+            } else {
+                threshold = _pFiltaa->GetThreshold();
+            }
+            threshold = min(threshold+THRESHOLD_DELTA, 255);
+            log(L"threshold=%d", threshold);
+            _pFiltaa->SetThreshold(threshold);
+        }
+        UpdateOutputMenu();
+        break;
+    case IDM_DEC_THRESHOLD:
+        {
+            int threshold;
+            if (isMenuItemChecked(hMenu, IDM_AUTO_THRESHOLD)) {
+                toggleMenuItemChecked(hMenu, IDM_AUTO_THRESHOLD);
+                threshold = _pFiltaa->GetAutoThreshold();
+            } else {
+                threshold = _pFiltaa->GetThreshold();
+            }
+            threshold = max(0, threshold-THRESHOLD_DELTA);
+            log(L"threshold=%d", threshold);
+            _pFiltaa->SetThreshold(threshold);
+        }
+        UpdateOutputMenu();
         break;
 
     case IDM_OPEN_FILTER_PROPERTIES:
@@ -1048,7 +1086,6 @@ void WebCamoo::DoCommand(UINT cmd)
     default:
         if (IDM_DEVICE_VIDEO_START <= cmd &&
             cmd <= IDM_DEVICE_VIDEO_END) {
-            HMENU hMenu = findSubMenu(GetMenu(_hWnd), cmd);
             mii.fMask = (MIIM_STRING | MIIM_DATA);
             if (GetMenuItemInfo(hMenu, cmd, FALSE, &mii)) {
                 if (mii.dwItemData != NULL) {
@@ -1062,7 +1099,6 @@ void WebCamoo::DoCommand(UINT cmd)
             }
         } else if (IDM_DEVICE_AUDIO_START <= cmd &&
                    cmd <= IDM_DEVICE_AUDIO_END) {
-            HMENU hMenu = findSubMenu(GetMenu(_hWnd), cmd);
             mii.fMask = (MIIM_STRING | MIIM_DATA);
             if (GetMenuItemInfo(hMenu, cmd, FALSE, &mii)) {
                 if (mii.dwItemData != NULL) {
