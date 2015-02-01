@@ -77,6 +77,7 @@ static HMENU findSubMenu(HMENU hMenu, UINT id)
 
 static int findMenuItemPos(HMENU hMenu, UINT id)
 {
+    hMenu = findSubMenu(hMenu, id);
     MENUITEMINFO mii = {0};
     mii.cbSize = sizeof(mii);
     mii.fMask = MIIM_ID;
@@ -87,6 +88,52 @@ static int findMenuItemPos(HMENU hMenu, UINT id)
         }
     }
     return -1;
+}
+
+static BOOL isMenuItemChecked(HMENU hMenu, UINT id)
+{
+    hMenu = findSubMenu(hMenu, id);
+    MENUITEMINFO mii = {0};
+    mii.cbSize = sizeof(mii);
+    mii.fMask = MIIM_STATE;
+    if (GetMenuItemInfo(hMenu, id, FALSE, &mii)) {
+        return (mii.fState & MFS_CHECKED);
+    }
+    return FALSE;
+}
+
+static BOOL toggleMenuItemChecked(HMENU hMenu, UINT id)
+{
+    hMenu = findSubMenu(hMenu, id);
+    MENUITEMINFO mii = {0};
+    mii.cbSize = sizeof(mii);
+    mii.fMask = MIIM_STATE;
+    if (GetMenuItemInfo(hMenu, id, FALSE, &mii)) {
+        if ((mii.fState & MFS_CHECKED)) {
+            mii.fState &= ~MFS_CHECKED;
+        } else {
+            mii.fState |= MFS_CHECKED;
+        }
+        SetMenuItemInfo(hMenu, id, FALSE, &mii);
+        return TRUE;
+    }
+    return FALSE;
+}
+
+static void setMenuItemDisabled(HMENU hMenu, UINT id, BOOL disabled)
+{
+    hMenu = findSubMenu(hMenu, id);
+    MENUITEMINFO mii = {0};
+    mii.cbSize = sizeof(mii);
+    mii.fMask = MIIM_STATE;
+    if (GetMenuItemInfo(hMenu, id, FALSE, &mii)) {
+        if (disabled) {
+            mii.fState |= MFS_DISABLED;
+        } else {
+            mii.fState &= ~MFS_DISABLED;
+        }
+        SetMenuItemInfo(hMenu, id, FALSE, &mii);
+    }
 }
 
 
@@ -295,10 +342,9 @@ class WebCamoo
     IMoniker* _pVideoMoniker;
     IMoniker* _pAudioMoniker;
 
-    BOOL GetMenuItemState(UINT id);
-    BOOL ToggleMenuItemState(UINT id);
     void UpdateDeviceMenuItems();
     void UpdateDeviceMenuChecks();
+    void UpdateOutputMenu();
     HRESULT CleanupFilterGraph();
     HRESULT BuildFilterGraph();
     HRESULT UpdatePlayState(FILTER_STATE state);
@@ -456,33 +502,6 @@ WebCamoo::~WebCamoo()
     }
 }
 
-BOOL WebCamoo::GetMenuItemState(UINT id)
-{
-    HMENU hMenu = findSubMenu(GetMenu(_hWnd), id);
-    MENUITEMINFO mii = {0};
-    mii.cbSize = sizeof(mii);
-    mii.fMask = MIIM_STATE;
-    if (GetMenuItemInfo(hMenu, id, FALSE, &mii)) {
-        return (mii.fState & MFS_CHECKED);
-    }
-    return FALSE;
-}
-
-BOOL WebCamoo::ToggleMenuItemState(UINT id)
-{
-    HMENU hMenu = findSubMenu(GetMenu(_hWnd), id);
-    MENUITEMINFO mii = {0};
-    mii.cbSize = sizeof(mii);
-    mii.fMask = MIIM_STATE;
-    if (GetMenuItemInfo(hMenu, id, FALSE, &mii)) {
-        BOOL checked = (mii.fState & MFS_CHECKED);
-        mii.fState = (checked)? MFS_UNCHECKED : MFS_CHECKED;
-        SetMenuItemInfo(hMenu, id, FALSE, &mii);
-        return TRUE;
-    }
-    return FALSE;
-}
-
 // UpdateDeviceMenuItems
 void WebCamoo::UpdateDeviceMenuItems()
 {
@@ -531,12 +550,8 @@ void WebCamoo::UpdateDeviceMenuChecks()
         }
     }
 
-    mii.fMask = MIIM_STATE;
-    mii.fState = (filterProp)? MFS_ENABLED : MFS_DISABLED;
-    SetMenuItemInfo(_deviceMenu, IDM_OPEN_FILTER_PROPERTIES, FALSE, &mii);
-    mii.fMask = MIIM_STATE;
-    mii.fState = (pinProp)? MFS_ENABLED : MFS_DISABLED;
-    SetMenuItemInfo(_deviceMenu, IDM_OPEN_PIN_PROPERTIES, FALSE, &mii);
+    setMenuItemDisabled(_deviceMenu, IDM_OPEN_FILTER_PROPERTIES, !filterProp);
+    setMenuItemDisabled(_deviceMenu, IDM_OPEN_PIN_PROPERTIES, !pinProp);
     
     int n = GetMenuItemCount(_deviceMenu);
     for(int i = 0; i < n; i++) {
@@ -559,6 +574,32 @@ void WebCamoo::UpdateDeviceMenuChecks()
         mii.fMask = MIIM_STATE;
         mii.fState = (checked)? MFS_CHECKED : MFS_UNCHECKED;
         SetMenuItemInfo(_deviceMenu, i, TRUE, &mii);
+    }
+}
+
+// UpdateOutputMenu
+void WebCamoo::UpdateOutputMenu()
+{
+    HMENU hMenu = GetMenu(_hWnd);
+    if (_state != State_Running) {
+        setMenuItemDisabled(hMenu, IDM_KEEP_ASPECT_RATIO, TRUE);
+        setMenuItemDisabled(hMenu, IDM_THRESHOLDING, TRUE);
+        setMenuItemDisabled(hMenu, IDM_AUTO_THRESHOLD, TRUE);
+        setMenuItemDisabled(hMenu, IDM_INC_THRESHOLD, TRUE);
+        setMenuItemDisabled(hMenu, IDM_DEC_THRESHOLD, TRUE);
+    } else {
+        setMenuItemDisabled(hMenu, IDM_KEEP_ASPECT_RATIO, FALSE);
+        setMenuItemDisabled(hMenu, IDM_THRESHOLDING, FALSE);
+        setMenuItemDisabled(hMenu, IDM_AUTO_THRESHOLD, TRUE);
+        setMenuItemDisabled(hMenu, IDM_INC_THRESHOLD, TRUE);
+        setMenuItemDisabled(hMenu, IDM_DEC_THRESHOLD, TRUE);
+        if (isMenuItemChecked(hMenu, IDM_THRESHOLDING)) {
+            setMenuItemDisabled(hMenu, IDM_AUTO_THRESHOLD, FALSE);
+            if (!isMenuItemChecked(hMenu, IDM_AUTO_THRESHOLD)) {
+                setMenuItemDisabled(hMenu, IDM_INC_THRESHOLD, FALSE);
+                setMenuItemDisabled(hMenu, IDM_DEC_THRESHOLD, FALSE);
+            }
+        }
     }
 }
 
@@ -600,6 +641,7 @@ HRESULT WebCamoo::BuildFilterGraph()
     HRESULT hr;
     log(L"BuildFilterGraph");
 
+    BOOL thresholding = isMenuItemChecked(GetMenu(_hWnd), IDM_THRESHOLDING);
     if (_pVideoSrc != NULL &&
         _pVideoSink != NULL) {
         // Add Capture filter to our graph.
@@ -607,7 +649,7 @@ HRESULT WebCamoo::BuildFilterGraph()
         if (FAILED(hr)) return hr;
         hr = _pGraph->AddFilter(_pVideoSink, L"VideoSink");
         if (FAILED(hr)) return hr;
-        if (GetMenuItemState(IDM_THRESHOLDING)) {
+        if (thresholding) {
             IBaseFilter* pFilter = NULL;
             hr = _pFiltaa->QueryInterface(IID_PPV_ARGS(&pFilter));
             if (SUCCEEDED(hr)) {
@@ -678,7 +720,7 @@ HRESULT WebCamoo::UpdatePlayState(FILTER_STATE state)
                 hr = pMC->Pause();
                 break;
             case State_Stopped:
-                hr = pMC->StopWhenReady();
+                hr = pMC->Stop();
                 break;
             }
             if (SUCCEEDED(hr)) {
@@ -686,6 +728,7 @@ HRESULT WebCamoo::UpdatePlayState(FILTER_STATE state)
             }
             pMC->Release();
         }
+        UpdateOutputMenu();
     }
     
     return hr;
@@ -764,14 +807,7 @@ HRESULT WebCamoo::InitializeWindow(HWND hWnd)
 
 void WebCamoo::UninitializeWindow(void)
 {
-    HRESULT hr;
-    IMediaControl* pMC = NULL;
-    hr = _pGraph->QueryInterface(IID_PPV_ARGS(&pMC));
-    if (SUCCEEDED(hr)) {
-        hr = pMC->Stop();
-        pMC->Release();
-    }
-
+    UpdatePlayState(State_Stopped);
     CleanupFilterGraph();
     SelectVideo(NULL);
     SelectAudio(NULL);
@@ -800,7 +836,8 @@ HRESULT WebCamoo::ResizeVideoWindow(void)
     // Resize the video preview window to match owner window size
     RECT rc;
     GetClientRect(_hWnd, &rc);
-    if (GetMenuItemState(IDM_KEEP_ASPECT_RATIO)) {
+    BOOL keepRatio = isMenuItemChecked(GetMenu(_hWnd), IDM_KEEP_ASPECT_RATIO);
+    if (keepRatio) {
         int w0 = rc.right - rc.left;
         int h0 = rc.bottom - rc.top;
         int w1 = _videoWidth;
@@ -959,7 +996,6 @@ HRESULT WebCamoo::OpenPinProperties()
 
 void WebCamoo::DoCommand(UINT cmd)
 {
-    HMENU hMenu = findSubMenu(GetMenu(_hWnd), cmd);
     WCHAR name[1024];
     MENUITEMINFO mii = {0};
     mii.cbSize = sizeof(mii);
@@ -973,14 +1009,14 @@ void WebCamoo::DoCommand(UINT cmd)
 
     case IDM_THRESHOLDING:
         UpdatePlayState(State_Stopped);
-        ToggleMenuItemState(cmd);
+        toggleMenuItemChecked(GetMenu(_hWnd), cmd);
         CleanupFilterGraph();
         BuildFilterGraph();
         UpdatePlayState(State_Running);
         break;
 
     case IDM_KEEP_ASPECT_RATIO:
-        ToggleMenuItemState(cmd);
+        toggleMenuItemChecked(GetMenu(_hWnd), cmd);
         ResizeVideoWindow();
         break;
 
@@ -1012,6 +1048,7 @@ void WebCamoo::DoCommand(UINT cmd)
     default:
         if (IDM_DEVICE_VIDEO_START <= cmd &&
             cmd <= IDM_DEVICE_VIDEO_END) {
+            HMENU hMenu = findSubMenu(GetMenu(_hWnd), cmd);
             mii.fMask = (MIIM_STRING | MIIM_DATA);
             if (GetMenuItemInfo(hMenu, cmd, FALSE, &mii)) {
                 if (mii.dwItemData != NULL) {
@@ -1025,6 +1062,7 @@ void WebCamoo::DoCommand(UINT cmd)
             }
         } else if (IDM_DEVICE_AUDIO_START <= cmd &&
                    cmd <= IDM_DEVICE_AUDIO_END) {
+            HMENU hMenu = findSubMenu(GetMenu(_hWnd), cmd);
             mii.fMask = (MIIM_STRING | MIIM_DATA);
             if (GetMenuItemInfo(hMenu, cmd, FALSE, &mii)) {
                 if (mii.dwItemData != NULL) {
