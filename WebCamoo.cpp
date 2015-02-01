@@ -1241,6 +1241,8 @@ int WebCamooMain(
         atom = RegisterClass(&klass);
         if (!atom) exit(111);
     }
+    HACCEL hAccel = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDM_ACCEL));
+    if (!hAccel) exit(111);
 
     // Create the main window.
     // The WS_CLIPCHILDREN style is required.
@@ -1265,8 +1267,12 @@ int WebCamooMain(
     // Main message loop.
     MSG msg;
     while(GetMessage(&msg, NULL, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
+        if (TranslateAccelerator(hWnd, hAccel, &msg)) {
+            ;
+        } else {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
     }
 
     // Uninitialize App.

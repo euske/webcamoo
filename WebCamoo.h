@@ -15,6 +15,7 @@
 
 #pragma once
 
+#define IDM_ACCEL 1
 #define IDM_MENU 101
 #define IDM_EXIT 1001
 #define IDM_OPEN_FILTER_PROPERTIES 2001
