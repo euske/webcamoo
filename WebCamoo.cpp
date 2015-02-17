@@ -48,6 +48,15 @@ const UINT IDM_DEVICE_AUDIO_END = IDM_DEVICE_AUDIO_NONE+9999;
 
 //  Misc. functions
 //
+static inline int min2(int x, int y)
+{
+    return (x < y)? x : y;
+}
+static inline int max2(int x, int y)
+{
+    return (x < y)? y : x;
+}
+
 static FILE* logfp = NULL;      // logging
 static void log(LPCWSTR fmt, ...)
 {
@@ -808,7 +817,7 @@ void WebCamoo::UninitializeWindow(void)
     SelectAudio(NULL);
         
     // Stop receiving events.
-    _pME->SetNotifyWindow(NULL, WM_GRAPHNOTIFY, 0);
+    _pME->SetNotifyWindow(0, WM_GRAPHNOTIFY, 0);
 
     if (_notify != NULL) {
         UnregisterDeviceNotification(_notify);
@@ -1036,7 +1045,7 @@ void WebCamoo::DoCommand(UINT cmd)
             } else {
                 threshold = _pFiltaa->GetThreshold();
             }
-            threshold = min(threshold+THRESHOLD_DELTA, 255);
+            threshold = min2(threshold+THRESHOLD_DELTA, 255);
             log(L"threshold=%d", threshold);
             _pFiltaa->SetThreshold(threshold);
         }
@@ -1051,7 +1060,7 @@ void WebCamoo::DoCommand(UINT cmd)
             } else {
                 threshold = _pFiltaa->GetThreshold();
             }
-            threshold = max(0, threshold-THRESHOLD_DELTA);
+            threshold = max2(0, threshold-THRESHOLD_DELTA);
             log(L"threshold=%d", threshold);
             _pFiltaa->SetThreshold(threshold);
         }
@@ -1088,7 +1097,7 @@ void WebCamoo::DoCommand(UINT cmd)
             cmd <= IDM_DEVICE_VIDEO_END) {
             mii.fMask = (MIIM_STRING | MIIM_DATA);
             if (GetMenuItemInfo(hMenu, cmd, FALSE, &mii)) {
-                if (mii.dwItemData != NULL) {
+                if (mii.dwItemData != 0) {
                     IMoniker* pMoniker = (IMoniker*)mii.dwItemData;
                     UpdatePlayState(State_Stopped);
                     SelectVideo(pMoniker);
@@ -1101,7 +1110,7 @@ void WebCamoo::DoCommand(UINT cmd)
                    cmd <= IDM_DEVICE_AUDIO_END) {
             mii.fMask = (MIIM_STRING | MIIM_DATA);
             if (GetMenuItemInfo(hMenu, cmd, FALSE, &mii)) {
-                if (mii.dwItemData != NULL) {
+                if (mii.dwItemData != 0) {
                     IMoniker* pMoniker = (IMoniker*)mii.dwItemData;
                     UpdatePlayState(State_Stopped);
                     SelectAudio(pMoniker);

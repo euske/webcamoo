@@ -570,9 +570,10 @@ STDMETHODIMP FiltaaInputPin::Disconnect()
 STDMETHODIMP FiltaaInputPin::QueryId(LPWSTR* Id)
 {
     if (Id == NULL) return E_POINTER;
-    LPWSTR dst = (LPWSTR)CoTaskMemAlloc(sizeof(WCHAR)*(lstrlen(_name)+1));
+    size_t size = sizeof(WCHAR)*(lstrlen(_name)+1);
+    LPWSTR dst = (LPWSTR)CoTaskMemAlloc(size);
     if (dst == NULL) return E_OUTOFMEMORY;
-    lstrcpy(dst, _name);
+    StringCbCopy(dst, size, _name);
     *Id = dst;
     return S_OK;
 }
