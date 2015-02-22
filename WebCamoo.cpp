@@ -296,6 +296,7 @@ static HRESULT findPin(
     if (pFilter == NULL) return E_POINTER;
     if (ppPinFound == NULL) return E_POINTER;
 
+    *ppPinFound = NULL;
     IEnumPins* pEnum = NULL;
     hr = pFilter->EnumPins(&pEnum);
     if (SUCCEEDED(hr)) {
@@ -314,19 +315,61 @@ static HRESULT findPin(
                     if (SUCCEEDED(hr) && IsEqualGUID(*category, cat)) {
                         *ppPinFound = pPin;
                         (*ppPinFound)->AddRef();
-                        hr = S_OK;
-                        break;
                     }
                     pKS->Release();
                 }
             }
             pPin->Release();
+            if (*ppPinFound != NULL) break;
         }
         pEnum->Release();
     }
     
     return hr;
 }
+
+static HRESULT disconnectFilters(
+    IBaseFilter* pFilter0, IBaseFilter* pFilter1)
+{
+    HRESULT hr;
+    if (pFilter0 == NULL) return E_POINTER;
+    if (pFilter1 == NULL) return E_POINTER;
+
+    IEnumPins* pEnum = NULL;
+    hr = pFilter1->EnumPins(&pEnum);
+    if (SUCCEEDED(hr)) {
+        IPin* pPinFrom = NULL;
+        while ((hr = pEnum->Next(1, &pPinFrom, NULL)) == S_OK) {
+            IPin* pPinTo = NULL;
+            hr = pPinFrom->ConnectedTo(&pPinTo);
+            if (SUCCEEDED(hr)) {
+                PIN_INFO info;
+                hr = pPinTo->QueryPinInfo(&info);
+                pPinFrom->Disconnect();
+                if (SUCCEEDED(hr)) {
+                    disconnectFilters(pFilter0, info.pFilter);
+                    info.pFilter->Release();
+                    info.pFilter = NULL;
+                }
+                pPinTo->Release();
+            }
+            pPinFrom->Release();
+        }
+        pEnum->Release();
+    }
+    
+    if (pFilter1 != pFilter0) {
+        FILTER_INFO info;
+        hr = pFilter1->QueryFilterInfo(&info);
+        if (SUCCEEDED(hr) && info.pGraph != NULL) {
+            hr = info.pGraph->RemoveFilter(pFilter1);
+            info.pGraph->Release();
+            info.pGraph = NULL;
+        }
+    }
+
+    return hr;    
+}   
 
 class WebCamoo
 {
@@ -549,7 +592,7 @@ void WebCamoo::UpdateDeviceMenuChecks()
         IPin* pPin = NULL;
         hr = findPin(_pVideoSrc, PINDIR_OUTPUT,
                      &PIN_CATEGORY_CAPTURE, &pPin);
-        if (SUCCEEDED(hr)) {
+        if (SUCCEEDED(hr) && pPin != NULL) {
             hr = pPin->QueryInterface(IID_PPV_ARGS(&pSpec));
             if (SUCCEEDED(hr)) {
                 mii.fMask = MIIM_STATE;
@@ -610,33 +653,19 @@ void WebCamoo::UpdateOutputMenu()
 // CleanupFilterGraph
 HRESULT WebCamoo::CleanupFilterGraph()
 {
-    HRESULT hr;
     log(L"CleanupFilterGraph");
 
     _videoWidth = 0;
     _videoHeight = 0;
-    
-    IEnumFilters* pEnum = NULL;
-    hr = _pGraph->EnumFilters(&pEnum);
-    if (SUCCEEDED(hr)) {
-        // Remove every filter except Soruce/Sink.
-        BOOL changed = TRUE;
-        while (changed && SUCCEEDED(pEnum->Reset())) {
-            changed = FALSE;
-            IBaseFilter* pFilter = NULL;
-            while (pEnum->Next(1, &pFilter, NULL) == S_OK) {
-                hr = _pGraph->RemoveFilter(pFilter);
-                pFilter->Release();
-                if (SUCCEEDED(hr)) {
-                    changed = TRUE;
-                    break;
-                }
-            }
-        }
-        pEnum->Release();
+
+    if (_pVideoSrc != NULL) {
+        disconnectFilters(_pVideoSrc, _pVideoSrc);
+    }
+    if (_pAudioSrc != NULL) {
+        disconnectFilters(_pAudioSrc, _pAudioSrc);
     }
 
-    return hr;
+    return S_OK;
 }
 
 // BuildFilterGraph
@@ -649,8 +678,6 @@ HRESULT WebCamoo::BuildFilterGraph()
     if (_pVideoSrc != NULL &&
         _pVideoSink != NULL) {
         // Add Capture filter to our graph.
-        hr = _pGraph->AddFilter(_pVideoSrc, L"VideoSrc");
-        if (FAILED(hr)) return hr;
         hr = _pGraph->AddFilter(_pVideoSink, L"VideoSink");
         if (FAILED(hr)) return hr;
         if (thresholding) {
@@ -692,8 +719,6 @@ HRESULT WebCamoo::BuildFilterGraph()
     if (_pAudioSrc != NULL &&
         _pAudioSink != NULL) {
         // Add Capture filter to our graph.
-        hr = _pGraph->AddFilter(_pAudioSrc, L"AudioSrc");
-        if (FAILED(hr)) return hr;
         hr = _pGraph->AddFilter(_pAudioSink, L"AudioSink");
         if (FAILED(hr)) return hr;
         // Render the preview pin on the audio capture filter.
@@ -744,6 +769,7 @@ HRESULT WebCamoo::SelectVideo(IMoniker* pMoniker)
     log(L"SelectVideo: %p", pMoniker);
 
     if (_pVideoSrc != NULL) {
+        _pGraph->RemoveFilter(_pVideoSrc);
         _pVideoSrc->Release();
         _pVideoSrc = NULL;
     }
@@ -752,6 +778,7 @@ HRESULT WebCamoo::SelectVideo(IMoniker* pMoniker)
         hr = pMoniker->BindToObject(
             NULL, NULL, IID_PPV_ARGS(&_pVideoSrc));
         if (SUCCEEDED(hr)) {
+            _pGraph->AddFilter(_pVideoSrc, L"VideoSrc");
             _pVideoMoniker = pMoniker;
         }
     } else {
@@ -768,6 +795,7 @@ HRESULT WebCamoo::SelectAudio(IMoniker* pMoniker)
     log(L"SelectAudio: %p", pMoniker);
 
     if (_pAudioSrc != NULL) {
+        _pGraph->RemoveFilter(_pAudioSrc);
         _pAudioSrc->Release();
         _pAudioSrc = NULL;
     }
@@ -776,6 +804,7 @@ HRESULT WebCamoo::SelectAudio(IMoniker* pMoniker)
         hr = pMoniker->BindToObject(
             NULL, NULL, IID_PPV_ARGS(&_pAudioSrc));
         if (SUCCEEDED(hr)) {
+            _pGraph->AddFilter(_pAudioSrc, L"AudioSrc");
             _pAudioMoniker = pMoniker;
         }
     } else {
@@ -954,15 +983,12 @@ HRESULT WebCamoo::OpenPinProperties()
     if (_pVideoSrc == NULL) return S_OK;
     
     UpdatePlayState(State_Stopped);
-
     CleanupFilterGraph();
-    hr = _pGraph->AddFilter(_pVideoSrc, L"VideoSrc");
-    if (FAILED(hr)) return hr;
 
     IPin* pPin = NULL;
     hr = findPin(_pVideoSrc, PINDIR_OUTPUT,
                  &PIN_CATEGORY_CAPTURE, &pPin);
-    if (SUCCEEDED(hr)) {
+    if (SUCCEEDED(hr) && pPin != NULL) {
         ISpecifyPropertyPages* pSpec = NULL;
         hr = pPin->QueryInterface(IID_PPV_ARGS(&pSpec));
         if (SUCCEEDED(hr)) {
@@ -991,7 +1017,6 @@ HRESULT WebCamoo::OpenPinProperties()
         pPin->Release();
     }
 
-    CleanupFilterGraph();
     BuildFilterGraph();
     UpdatePlayState(State_Running);
     
