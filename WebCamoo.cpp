@@ -208,6 +208,25 @@ static void RemoveGraphFromRot(DWORD pdwRegister)
     }
 }
 
+// getFriendlyName
+static HRESULT getFriendlyName(
+    VARIANT* pVar, IMoniker* pMoniker)
+{
+    HRESULT hr;
+    if (pVar == NULL) return E_POINTER;
+    if (pMoniker == NULL) return E_POINTER;
+
+    IPropertyBag* pBag = NULL;
+    hr = pMoniker->BindToStorage(NULL, NULL, IID_PPV_ARGS(&pBag));
+    if (SUCCEEDED(hr)) {
+        pVar->vt = VT_BSTR;
+        hr = pBag->Read(L"FriendlyName", pVar, NULL);
+        pBag->Release();
+    }
+
+    return hr;
+}
+
 // ResetCaptureDevices
 static void ResetCaptureDevices(HMENU hMenu)
 {
@@ -257,26 +276,20 @@ static HRESULT AddCaptureDevices(HMENU hMenu, int pos, UINT wID, CLSID category)
             // it will return S_FALSE (which is not a failure).  Therefore, we
             // check that the return code is S_OK instead of using SUCCEEDED() macro.
             while (pClassEnum->Next(1, &pMoniker, NULL) == S_OK) {
-                IPropertyBag* pBag = NULL;
-                hr = pMoniker->BindToStorage(NULL, NULL, IID_PPV_ARGS(&pBag));
+                VARIANT var;
+                hr = getFriendlyName(&var, pMoniker);
                 if (SUCCEEDED(hr)) {
-                    VARIANT var;
-                    var.vt = VT_BSTR;
-                    hr = pBag->Read(L"FriendlyName", &var, NULL);
-                    if (SUCCEEDED(hr)) {
-                        MENUITEMINFO mii = {0};
-                        mii.cbSize = sizeof(mii);
-                        mii.fMask = (MIIM_STRING | MIIM_ID | MIIM_DATA);
-                        mii.dwTypeData = var.bstrVal;
-                        mii.dwItemData = (ULONG_PTR)pMoniker;
-                        mii.cch = lstrlen(var.bstrVal);
-                        mii.wID = wID++;
-                        InsertMenuItem(hMenu, pos, TRUE, &mii);
-                        SysFreeString(var.bstrVal);
-                        pMoniker->AddRef();
-                        pos++;
-                    }
-                    pBag->Release();
+                    MENUITEMINFO mii = {0};
+                    mii.cbSize = sizeof(mii);
+                    mii.fMask = (MIIM_STRING | MIIM_ID | MIIM_DATA);
+                    mii.dwTypeData = var.bstrVal;
+                    mii.dwItemData = (ULONG_PTR)pMoniker;
+                    mii.cch = lstrlen(var.bstrVal);
+                    mii.wID = wID++;
+                    InsertMenuItem(hMenu, pos, TRUE, &mii);
+                    SysFreeString(var.bstrVal);
+                    pMoniker->AddRef();
+                    pos++;
                 }
                 pMoniker->Release();
             }
@@ -951,26 +964,20 @@ HRESULT WebCamoo::OpenFilterProperties()
     ISpecifyPropertyPages* pSpec = NULL;
     hr = _pVideoSrc->QueryInterface(IID_PPV_ARGS(&pSpec));
     if (SUCCEEDED(hr)) {
-        IPropertyBag* pBag = NULL;
-        hr = _pVideoMoniker->BindToStorage(NULL, NULL, IID_PPV_ARGS(&pBag));
+        VARIANT var;
+        hr = getFriendlyName(&var, _pVideoMoniker);
         if (SUCCEEDED(hr)) {
-            VARIANT var;
-            var.vt = VT_BSTR;
-            hr = pBag->Read(L"FriendlyName", &var, NULL);
-            if (SUCCEEDED(hr)) {
-                CAUUID cauuid;
-                hr = pSpec->GetPages(&cauuid);
-                if (SUCCEEDED(hr) && 0 < cauuid.cElems) {
-                    hr = OleCreatePropertyFrame(
-                        _hWnd, 0, 0, var.bstrVal, 1,
-                        (IUnknown**)&_pVideoSrc, cauuid.cElems,
-                        (GUID*)cauuid.pElems, 0, 0, NULL);
-                    CoTaskMemFree(cauuid.pElems);
-                }
-                pSpec->Release();
-                SysFreeString(var.bstrVal);
+            CAUUID cauuid;
+            hr = pSpec->GetPages(&cauuid);
+            if (SUCCEEDED(hr) && 0 < cauuid.cElems) {
+                hr = OleCreatePropertyFrame(
+                    _hWnd, 0, 0, var.bstrVal, 1,
+                    (IUnknown**)&_pVideoSrc, cauuid.cElems,
+                    (GUID*)cauuid.pElems, 0, 0, NULL);
+                CoTaskMemFree(cauuid.pElems);
             }
-            pBag->Release();
+            pSpec->Release();
+            SysFreeString(var.bstrVal);
         }
     }
     
@@ -992,26 +999,20 @@ HRESULT WebCamoo::OpenPinProperties()
         ISpecifyPropertyPages* pSpec = NULL;
         hr = pPin->QueryInterface(IID_PPV_ARGS(&pSpec));
         if (SUCCEEDED(hr)) {
-            IPropertyBag* pBag = NULL;
-            hr = _pVideoMoniker->BindToStorage(NULL, NULL, IID_PPV_ARGS(&pBag));
+            VARIANT var;
+            hr = getFriendlyName(&var, _pVideoMoniker);
             if (SUCCEEDED(hr)) {
-                VARIANT var;
-                var.vt = VT_BSTR;
-                hr = pBag->Read(L"FriendlyName", &var, NULL);
-                if (SUCCEEDED(hr)) {
-                    CAUUID cauuid;
-                    hr = pSpec->GetPages(&cauuid);
-                    if (SUCCEEDED(hr) && 0 < cauuid.cElems) {
-                        hr = OleCreatePropertyFrame(
-                            _hWnd, 0, 0, var.bstrVal, 1,
-                            (IUnknown**)&pPin, cauuid.cElems,
-                            (GUID*)cauuid.pElems, 0, 0, NULL);
-                        CoTaskMemFree(cauuid.pElems);
-                    }
-                    pSpec->Release();
-                    SysFreeString(var.bstrVal);
+                CAUUID cauuid;
+                hr = pSpec->GetPages(&cauuid);
+                if (SUCCEEDED(hr) && 0 < cauuid.cElems) {
+                    hr = OleCreatePropertyFrame(
+                        _hWnd, 0, 0, var.bstrVal, 1,
+                        (IUnknown**)&pPin, cauuid.cElems,
+                        (GUID*)cauuid.pElems, 0, 0, NULL);
+                    CoTaskMemFree(cauuid.pElems);
                 }
-                pBag->Release();
+                pSpec->Release();
+                SysFreeString(var.bstrVal);
             }
         }
         pPin->Release();
