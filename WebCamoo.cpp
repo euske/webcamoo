@@ -420,8 +420,9 @@ class WebCamoo
     HRESULT ResizeVideoWindow(void);
     HRESULT HandleGraphEvent(void);
 
-    HRESULT OpenFilterProperties();
-    HRESULT OpenPinProperties();
+    HRESULT OpenVideoFilterProperties();
+    HRESULT OpenVideoPinProperties();
+    HRESULT OpenAudioFilterProperties();
     
 public:
     WebCamoo();
@@ -593,13 +594,15 @@ void WebCamoo::UpdateDeviceMenuChecks()
     MENUITEMINFO mii = {0};
     mii.cbSize = sizeof(mii);
     
-    BOOL filterProp = FALSE;
-    BOOL pinProp = FALSE;
+    BOOL videoFilterProp = FALSE;
+    BOOL videoPinProp = FALSE;
+    BOOL audioFilterProp = FALSE;
+    
     if (_pVideoSrc != NULL) {
         ISpecifyPropertyPages* pSpec = NULL;
         hr = _pVideoSrc->QueryInterface(IID_PPV_ARGS(&pSpec));
         if (SUCCEEDED(hr)) {
-            filterProp = TRUE;
+            videoFilterProp = TRUE;
             pSpec->Release();
         }
         IPin* pPin = NULL;
@@ -609,15 +612,27 @@ void WebCamoo::UpdateDeviceMenuChecks()
             hr = pPin->QueryInterface(IID_PPV_ARGS(&pSpec));
             if (SUCCEEDED(hr)) {
                 mii.fMask = MIIM_STATE;
-                pinProp = TRUE;
+                videoPinProp = TRUE;
                 pSpec->Release();
             }
             pPin->Release();
         }
     }
+    if (_pAudioSrc != NULL) {
+        ISpecifyPropertyPages* pSpec = NULL;
+        hr = _pAudioSrc->QueryInterface(IID_PPV_ARGS(&pSpec));
+        if (SUCCEEDED(hr)) {
+            audioFilterProp = TRUE;
+            pSpec->Release();
+        }
+    }
 
-    setMenuItemDisabled(_deviceMenu, IDM_OPEN_FILTER_PROPERTIES, !filterProp);
-    setMenuItemDisabled(_deviceMenu, IDM_OPEN_PIN_PROPERTIES, !pinProp);
+    setMenuItemDisabled(_deviceMenu, IDM_OPEN_VIDEO_FILTER_PROPERTIES,
+                        !videoFilterProp);
+    setMenuItemDisabled(_deviceMenu, IDM_OPEN_VIDEO_PIN_PROPERTIES,
+                        !videoPinProp);
+    setMenuItemDisabled(_deviceMenu, IDM_OPEN_AUDIO_FILTER_PROPERTIES,
+                        !audioFilterProp);
     
     int n = GetMenuItemCount(_deviceMenu);
     for(int i = 0; i < n; i++) {
@@ -956,7 +971,7 @@ HRESULT WebCamoo::HandleGraphEvent(void)
     return hr;
 }
 
-HRESULT WebCamoo::OpenFilterProperties()
+HRESULT WebCamoo::OpenVideoFilterProperties()
 {
     HRESULT hr;
     if (_pVideoSrc == NULL) return S_OK;
@@ -984,13 +999,12 @@ HRESULT WebCamoo::OpenFilterProperties()
     return hr;
 }
 
-HRESULT WebCamoo::OpenPinProperties()
+HRESULT WebCamoo::OpenVideoPinProperties()
 {
     HRESULT hr;
     if (_pVideoSrc == NULL) return S_OK;
     
     UpdatePlayState(State_Stopped);
-    CleanupFilterGraph();
 
     IPin* pPin = NULL;
     hr = findPin(_pVideoSrc, PINDIR_OUTPUT,
@@ -1018,10 +1032,37 @@ HRESULT WebCamoo::OpenPinProperties()
         pPin->Release();
     }
 
-    BuildFilterGraph();
     UpdatePlayState(State_Running);
     
     return S_OK;
+}
+
+HRESULT WebCamoo::OpenAudioFilterProperties()
+{
+    HRESULT hr;
+    if (_pAudioSrc == NULL) return S_OK;
+    
+    ISpecifyPropertyPages* pSpec = NULL;
+    hr = _pAudioSrc->QueryInterface(IID_PPV_ARGS(&pSpec));
+    if (SUCCEEDED(hr)) {
+        VARIANT var;
+        hr = getFriendlyName(&var, _pAudioMoniker);
+        if (SUCCEEDED(hr)) {
+            CAUUID cauuid;
+            hr = pSpec->GetPages(&cauuid);
+            if (SUCCEEDED(hr) && 0 < cauuid.cElems) {
+                hr = OleCreatePropertyFrame(
+                    _hWnd, 0, 0, var.bstrVal, 1,
+                    (IUnknown**)&_pAudioSrc, cauuid.cElems,
+                    (GUID*)cauuid.pElems, 0, 0, NULL);
+                CoTaskMemFree(cauuid.pElems);
+            }
+            pSpec->Release();
+            SysFreeString(var.bstrVal);
+        }
+    }
+    
+    return hr;
 }
 
 void WebCamoo::DoCommand(UINT cmd)
@@ -1093,12 +1134,16 @@ void WebCamoo::DoCommand(UINT cmd)
         UpdateOutputMenu();
         break;
 
-    case IDM_OPEN_FILTER_PROPERTIES:
-        OpenFilterProperties();
+    case IDM_OPEN_VIDEO_FILTER_PROPERTIES:
+        OpenVideoFilterProperties();
         break;
         
-    case IDM_OPEN_PIN_PROPERTIES:
-        OpenPinProperties();
+    case IDM_OPEN_VIDEO_PIN_PROPERTIES:
+        OpenVideoPinProperties();
+        break;
+        
+    case IDM_OPEN_AUDIO_FILTER_PROPERTIES:
+        OpenAudioFilterProperties();
         break;
         
     case IDM_DEVICE_VIDEO_NONE:
