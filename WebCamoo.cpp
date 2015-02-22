@@ -411,9 +411,11 @@ class WebCamoo
     void UpdateDeviceMenuItems();
     void UpdateDeviceMenuChecks();
     void UpdateOutputMenu();
-    HRESULT CleanupFilterGraph();
-    HRESULT BuildFilterGraph();
     HRESULT UpdatePlayState(FILTER_STATE state);
+    HRESULT ClearVideoFilterGraph();
+    HRESULT ClearAudioFilterGraph();
+    HRESULT BuildVideoFilterGraph();
+    HRESULT BuildAudioFilterGraph();
     HRESULT SelectVideo(IMoniker* pVideoMoniker);
     HRESULT SelectAudio(IMoniker* pAudioMoniker);
     
@@ -678,17 +680,56 @@ void WebCamoo::UpdateOutputMenu()
     }
 }
 
-// CleanupFilterGraph
-HRESULT WebCamoo::CleanupFilterGraph()
+// UpdatePlayState
+HRESULT WebCamoo::UpdatePlayState(FILTER_STATE state)
 {
-    log(L"CleanupFilterGraph");
+    HRESULT hr = S_OK;
+
+    if (state != _state) {
+        IMediaControl* pMC = NULL;
+        hr = _pGraph->QueryInterface(IID_PPV_ARGS(&pMC));
+        if (SUCCEEDED(hr)) {
+            switch (state) {
+            case State_Running:
+                hr = pMC->Run();
+                break;
+            case State_Paused:
+                hr = pMC->Pause();
+                break;
+            case State_Stopped:
+                hr = pMC->Stop();
+                break;
+            }
+            if (SUCCEEDED(hr)) {
+                _state = state;
+            }
+            pMC->Release();
+        }
+        UpdateOutputMenu();
+    }
+    
+    return hr;
+}
+
+// ClearVideoFilterGraph
+HRESULT WebCamoo::ClearVideoFilterGraph()
+{
+    log(L"ClearVideoFilterGraph");
 
     _videoWidth = 0;
     _videoHeight = 0;
-
     if (_pVideoSrc != NULL) {
         disconnectFilters(_pVideoSrc, _pVideoSrc);
     }
+
+    return S_OK;
+}
+
+// ClearAudioFilterGraph
+HRESULT WebCamoo::ClearAudioFilterGraph()
+{
+    log(L"ClearAudioFilterGraph");
+
     if (_pAudioSrc != NULL) {
         disconnectFilters(_pAudioSrc, _pAudioSrc);
     }
@@ -696,11 +737,11 @@ HRESULT WebCamoo::CleanupFilterGraph()
     return S_OK;
 }
 
-// BuildFilterGraph
-HRESULT WebCamoo::BuildFilterGraph()
+// BuildVideoFilterGraph
+HRESULT WebCamoo::BuildVideoFilterGraph()
 {
     HRESULT hr;
-    log(L"BuildFilterGraph");
+    log(L"BuildVideoFilterGraph");
 
     BOOL thresholding = isMenuItemChecked(GetMenu(_hWnd), IDM_THRESHOLDING);
     if (_pVideoSrc != NULL &&
@@ -743,6 +784,15 @@ HRESULT WebCamoo::BuildFilterGraph()
         // of main application window.
         ResizeVideoWindow();
     }
+    
+    return hr;
+}
+
+// BuildAudioFilterGraph
+HRESULT WebCamoo::BuildAudioFilterGraph()
+{
+    HRESULT hr;
+    log(L"BuildVideoFilterGraph");
 
     if (_pAudioSrc != NULL &&
         _pAudioSink != NULL) {
@@ -755,37 +805,6 @@ HRESULT WebCamoo::BuildFilterGraph()
             &PIN_CATEGORY_PREVIEW, &MEDIATYPE_Audio,
             _pAudioSrc, NULL, _pAudioSink);
         if (FAILED(hr)) return hr;
-    }
-    
-    return hr;
-}
-
-// UpdatePlayState
-HRESULT WebCamoo::UpdatePlayState(FILTER_STATE state)
-{
-    HRESULT hr = S_OK;
-
-    if (state != _state) {
-        IMediaControl* pMC = NULL;
-        hr = _pGraph->QueryInterface(IID_PPV_ARGS(&pMC));
-        if (SUCCEEDED(hr)) {
-            switch (state) {
-            case State_Running:
-                hr = pMC->Run();
-                break;
-            case State_Paused:
-                hr = pMC->Pause();
-                break;
-            case State_Stopped:
-                hr = pMC->Stop();
-                break;
-            }
-            if (SUCCEEDED(hr)) {
-                _state = state;
-            }
-            pMC->Release();
-        }
-        UpdateOutputMenu();
     }
     
     return hr;
@@ -869,8 +888,9 @@ HRESULT WebCamoo::InitializeWindow(HWND hWnd)
 void WebCamoo::UninitializeWindow(void)
 {
     UpdatePlayState(State_Stopped);
-    CleanupFilterGraph();
+    ClearVideoFilterGraph();
     SelectVideo(NULL);
+    ClearAudioFilterGraph();
     SelectAudio(NULL);
         
     // Stop receiving events.
@@ -941,8 +961,9 @@ HRESULT WebCamoo::HandleGraphEvent(void)
         switch (evCode) {
         case EC_ERRORABORT:
             UpdatePlayState(State_Stopped);
-            CleanupFilterGraph();
+            ClearVideoFilterGraph();
             SelectVideo(NULL);
+            ClearAudioFilterGraph();
             SelectAudio(NULL);
             UpdateDeviceMenuChecks();
             break;
@@ -953,12 +974,12 @@ HRESULT WebCamoo::HandleGraphEvent(void)
                 hr = ((IUnknown*)evParam1)->QueryInterface(IID_PPV_ARGS(&pLost));
                 if (pLost == _pVideoSrc) {
                     UpdatePlayState(State_Stopped);
-                    CleanupFilterGraph();
+                    ClearVideoFilterGraph();
                     SelectVideo(NULL);
                     UpdateDeviceMenuChecks();
                 } else if (pLost == _pAudioSrc) {
                     UpdatePlayState(State_Stopped);
-                    CleanupFilterGraph();
+                    ClearAudioFilterGraph();
                     SelectAudio(NULL);
                     UpdateDeviceMenuChecks();
                 }
@@ -1005,6 +1026,7 @@ HRESULT WebCamoo::OpenVideoPinProperties()
     if (_pVideoSrc == NULL) return S_OK;
     
     UpdatePlayState(State_Stopped);
+    ClearVideoFilterGraph();
 
     IPin* pPin = NULL;
     hr = findPin(_pVideoSrc, PINDIR_OUTPUT,
@@ -1032,6 +1054,7 @@ HRESULT WebCamoo::OpenVideoPinProperties()
         pPin->Release();
     }
 
+    BuildVideoFilterGraph();
     UpdatePlayState(State_Running);
     
     return S_OK;
@@ -1087,8 +1110,8 @@ void WebCamoo::DoCommand(UINT cmd)
     case IDM_THRESHOLDING:
         UpdatePlayState(State_Stopped);
         toggleMenuItemChecked(hMenu, cmd);
-        CleanupFilterGraph();
-        BuildFilterGraph();
+        ClearVideoFilterGraph();
+        BuildVideoFilterGraph();
         UpdatePlayState(State_Running);
         break;
 
@@ -1148,18 +1171,17 @@ void WebCamoo::DoCommand(UINT cmd)
         
     case IDM_DEVICE_VIDEO_NONE:
         UpdatePlayState(State_Stopped);
-        CleanupFilterGraph();
+        ClearVideoFilterGraph();
         SelectVideo(NULL);
         UpdateDeviceMenuChecks();
-        BuildFilterGraph();
         UpdatePlayState(State_Running);
         break;
 
     case IDM_DEVICE_AUDIO_NONE:
         UpdatePlayState(State_Stopped);
+        ClearAudioFilterGraph();
         SelectAudio(NULL);
         UpdateDeviceMenuChecks();
-        BuildFilterGraph();
         UpdatePlayState(State_Running);
         break;
 
@@ -1173,7 +1195,7 @@ void WebCamoo::DoCommand(UINT cmd)
                     UpdatePlayState(State_Stopped);
                     SelectVideo(pMoniker);
                     UpdateDeviceMenuChecks();
-                    BuildFilterGraph();
+                    BuildVideoFilterGraph();
                     UpdatePlayState(State_Running);
                 }
             }
@@ -1186,7 +1208,7 @@ void WebCamoo::DoCommand(UINT cmd)
                     UpdatePlayState(State_Stopped);
                     SelectAudio(pMoniker);
                     UpdateDeviceMenuChecks();
-                    BuildFilterGraph();
+                    BuildAudioFilterGraph();
                     UpdatePlayState(State_Running);
                 }
             }
