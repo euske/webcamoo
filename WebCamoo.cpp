@@ -20,7 +20,6 @@
 #include <dshow.h>
 #include <stdio.h>
 #include <strsafe.h>
-#include <stdexcept>
 
 #include "WebCamoo.h"
 #include "Filtaa.h"
@@ -342,42 +341,39 @@ static HRESULT findPin(
 }
 
 static HRESULT disconnectFilters(
-    IBaseFilter* pFilter0, IBaseFilter* pFilter1)
+    IBaseFilter* pFilter)
 {
     HRESULT hr;
-    if (pFilter0 == NULL) return E_POINTER;
-    if (pFilter1 == NULL) return E_POINTER;
+    if (pFilter == NULL) return E_POINTER;
 
-    IEnumPins* pEnum = NULL;
-    hr = pFilter1->EnumPins(&pEnum);
-    if (SUCCEEDED(hr)) {
-        IPin* pPinFrom = NULL;
-        while ((hr = pEnum->Next(1, &pPinFrom, NULL)) == S_OK) {
-            IPin* pPinTo = NULL;
-            hr = pPinFrom->ConnectedTo(&pPinTo);
-            if (SUCCEEDED(hr)) {
-                PIN_INFO info;
-                hr = pPinTo->QueryPinInfo(&info);
-                pPinFrom->Disconnect();
+    FILTER_INFO finfo;
+    hr = pFilter->QueryFilterInfo(&finfo);
+    if (SUCCEEDED(hr) && finfo.pGraph != NULL) {
+        IEnumPins* pEnum = NULL;
+        hr = pFilter->EnumPins(&pEnum);
+        if (SUCCEEDED(hr)) {
+            IPin* pPinFrom = NULL;
+            while ((hr = pEnum->Next(1, &pPinFrom, NULL)) == S_OK) {
+                IPin* pPinTo = NULL;
+                hr = pPinFrom->ConnectedTo(&pPinTo);
                 if (SUCCEEDED(hr)) {
-                    disconnectFilters(pFilter0, info.pFilter);
-                    info.pFilter->Release();
-                    info.pFilter = NULL;
+                    PIN_INFO pinfo;
+                    hr = pPinTo->QueryPinInfo(&pinfo);
+                    if (SUCCEEDED(hr)) {
+                        if (pinfo.dir == PINDIR_INPUT) {
+                            disconnectFilters(pinfo.pFilter);
+                            finfo.pGraph->Disconnect(pPinFrom);
+                            finfo.pGraph->Disconnect(pPinTo);
+                            finfo.pGraph->RemoveFilter(pinfo.pFilter);
+                        }
+                        pinfo.pFilter->Release();
+                        pinfo.pFilter = NULL;
+                    }
+                    pPinTo->Release();
                 }
-                pPinTo->Release();
+                pPinFrom->Release();
             }
-            pPinFrom->Release();
-        }
-        pEnum->Release();
-    }
-    
-    if (pFilter1 != pFilter0) {
-        FILTER_INFO info;
-        hr = pFilter1->QueryFilterInfo(&info);
-        if (SUCCEEDED(hr) && info.pGraph != NULL) {
-            hr = info.pGraph->RemoveFilter(pFilter1);
-            info.pGraph->Release();
-            info.pGraph = NULL;
+            pEnum->Release();
         }
     }
 
@@ -719,7 +715,7 @@ HRESULT WebCamoo::ClearVideoFilterGraph()
     _videoWidth = 0;
     _videoHeight = 0;
     if (_pVideoSrc != NULL) {
-        disconnectFilters(_pVideoSrc, _pVideoSrc);
+        disconnectFilters(_pVideoSrc);
     }
 
     return S_OK;
@@ -731,7 +727,7 @@ HRESULT WebCamoo::ClearAudioFilterGraph()
     log(L"ClearAudioFilterGraph");
 
     if (_pAudioSrc != NULL) {
-        disconnectFilters(_pAudioSrc, _pAudioSrc);
+        disconnectFilters(_pAudioSrc);
     }
 
     return S_OK;
