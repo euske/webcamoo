@@ -391,9 +391,9 @@ class WebCamoo
     IBaseFilter* _pVideoSink;
     IBaseFilter* _pAudioSink;
     Filtaa* _pFiltaa;
+    IMediaEventEx* _pME;
 
     IVMRWindowlessControl* _pVW;
-    IMediaEventEx* _pME;
     FILTER_STATE _state;
     long _videoWidth;
     long _videoHeight;
@@ -444,9 +444,9 @@ WebCamoo::WebCamoo()
     _pVideoSink = NULL;
     _pAudioSink = NULL;
     _pFiltaa = new Filtaa();
+    _pME = NULL;
     
     _pVW = NULL;
-    _pME = NULL;
     _state = State_Stopped;
     _videoWidth = 0;
     _videoHeight = 0;
@@ -502,12 +502,8 @@ HRESULT WebCamoo::InitializeCOM()
         if (FAILED(hr)) return hr;
         pConfig->Release();
     }
-
-    // Obtain interfaces for Video Window.
-    hr = _pVideoSink->QueryInterface(
-        IID_PPV_ARGS(&_pVW));
-    if (FAILED(hr)) return hr;
     
+    // Obtain interfaces for Media Events.
     hr = _pGraph->QueryInterface(
         IID_PPV_ARGS(&_pME));
     if (FAILED(hr)) return hr;
@@ -526,11 +522,6 @@ WebCamoo::~WebCamoo()
     if (_pFiltaa != NULL) {
         _pFiltaa->Release();
         _pFiltaa = NULL;
-    }
-    
-    if (_pVW != NULL) {
-        _pVW->Release();
-        _pVW = NULL;
     }
     
     if (_pME != NULL) {
@@ -680,7 +671,7 @@ void WebCamoo::UpdateOutputMenu()
 HRESULT WebCamoo::UpdatePlayState(FILTER_STATE state)
 {
     HRESULT hr = S_OK;
-
+    
     if (state != _state) {
         IMediaControl* pMC = NULL;
         hr = _pGraph->QueryInterface(IID_PPV_ARGS(&pMC));
@@ -712,6 +703,10 @@ HRESULT WebCamoo::ClearVideoFilterGraph()
 {
     log(L"ClearVideoFilterGraph");
 
+    if (_pVW == NULL) return S_OK;
+    
+    _pVW->Release();
+    _pVW = NULL;
     _videoWidth = 0;
     _videoHeight = 0;
     if (_pVideoSrc != NULL) {
@@ -738,6 +733,8 @@ HRESULT WebCamoo::BuildVideoFilterGraph()
 {
     HRESULT hr;
     log(L"BuildVideoFilterGraph");
+
+    if (_pVW != NULL) return S_OK;
 
     BOOL thresholding = isMenuItemChecked(GetMenu(_hWnd), IDM_THRESHOLDING);
     if (_pVideoSrc != NULL &&
@@ -767,6 +764,11 @@ HRESULT WebCamoo::BuildVideoFilterGraph()
             if (FAILED(hr)) return hr;
         }
 
+        // Obtain interfaces for Video Window.
+        hr = _pVideoSink->QueryInterface(
+            IID_PPV_ARGS(&_pVW));
+        if (FAILED(hr)) return hr;
+        
         // Set the video window to be a child of the main window.
         hr = _pVW->SetVideoClippingWindow(_hWnd);
         if (FAILED(hr)) return hr;
@@ -908,7 +910,7 @@ void WebCamoo::UninitializeWindow(void)
 HRESULT WebCamoo::ResizeVideoWindow(void)
 {
     HRESULT hr;
-    if (_videoWidth == 0 || _videoHeight == 0) return S_OK;
+    if (_videoWidth == 0 || _videoHeight == 0 || _pVW == NULL) return S_OK;
         
     // Resize the video preview window to match owner window size
     RECT rc;
@@ -937,7 +939,7 @@ HRESULT WebCamoo::ResizeVideoWindow(void)
         // Make the preview video fill our window.
         ;
     }
-    
+
     hr = _pVW->SetVideoPosition(NULL, &rc);
     if (FAILED(hr)) return hr;
 
@@ -1235,10 +1237,12 @@ void WebCamoo::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         break;
         
     case WM_WINDOWPOSCHANGED:
-        if (!IsWindowVisible(_hWnd) || IsIconic(_hWnd)) {
-            UpdatePlayState(State_Stopped);
-        } else {
-            UpdatePlayState(State_Running);
+        if (_pVW != NULL) {
+            if (!IsWindowVisible(_hWnd) || IsIconic(_hWnd)) {
+                UpdatePlayState(State_Stopped);
+            } else {
+                UpdatePlayState(State_Running);
+            }
         }
         break;
         
