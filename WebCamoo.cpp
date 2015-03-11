@@ -256,7 +256,7 @@ static HRESULT AddCaptureDevices(HMENU hMenu, int pos, UINT wID, CLSID category)
     // Create the system device enumerator.
     ICreateDevEnum* pDevEnum = NULL;
     hr = CoCreateInstance(
-        CLSID_SystemDeviceEnum, NULL, CLSCTX_INPROC,
+        CLSID_SystemDeviceEnum, NULL, CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&pDevEnum));
     
     if (SUCCEEDED(hr)) {
@@ -464,13 +464,13 @@ HRESULT WebCamoo::InitializeCOM()
 
     // Create the filter graph.
     hr = CoCreateInstance(
-        CLSID_FilterGraph, NULL, CLSCTX_INPROC,
+        CLSID_FilterGraph, NULL, CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&_pGraph));
     if (FAILED(hr)) return hr;
 
     // Create the capture graph builder.
     hr = CoCreateInstance(
-        CLSID_CaptureGraphBuilder2, NULL, CLSCTX_INPROC,
+        CLSID_CaptureGraphBuilder2, NULL, CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&_pCapture));
     if (FAILED(hr)) return hr;
 
@@ -489,7 +489,7 @@ HRESULT WebCamoo::InitializeCOM()
 
     // Create the video window.
     hr = CoCreateInstance(
-        CLSID_VideoMixingRenderer, NULL, CLSCTX_INPROC,
+        CLSID_VideoMixingRenderer, NULL, CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&_pVideoSink));
     if (FAILED(hr)) return hr;
 
@@ -510,7 +510,7 @@ HRESULT WebCamoo::InitializeCOM()
 
     // Create the audio output.
     hr = CoCreateInstance(
-        CLSID_DSoundRender, NULL, CLSCTX_INPROC,
+        CLSID_DSoundRender, NULL, CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&_pAudioSink));
     if (FAILED(hr)) return hr;
 
@@ -942,6 +942,8 @@ HRESULT WebCamoo::ResizeVideoWindow(void)
 
     hr = _pVW->SetVideoPosition(NULL, &rc);
     if (FAILED(hr)) return hr;
+
+    InvalidateRect(_hWnd, NULL, TRUE);
 
     return S_OK;
 }
