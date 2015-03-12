@@ -1193,6 +1193,7 @@ void WebCamoo::DoCommand(UINT cmd)
                 if (mii.dwItemData != 0) {
                     IMoniker* pMoniker = (IMoniker*)mii.dwItemData;
                     UpdatePlayState(State_Stopped);
+                    ClearVideoFilterGraph();
                     SelectVideo(pMoniker);
                     UpdateDeviceMenuChecks();
                     BuildVideoFilterGraph();
@@ -1206,6 +1207,7 @@ void WebCamoo::DoCommand(UINT cmd)
                 if (mii.dwItemData != 0) {
                     IMoniker* pMoniker = (IMoniker*)mii.dwItemData;
                     UpdatePlayState(State_Stopped);
+                    ClearAudioFilterGraph();
                     SelectAudio(pMoniker);
                     UpdateDeviceMenuChecks();
                     BuildAudioFilterGraph();
