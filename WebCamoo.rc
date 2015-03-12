@@ -42,6 +42,11 @@ BEGIN
 END
 
 
+//  Icons
+//
+IDI_WEBCAMOO ICON "WebCamoo.ico"
+
+
 //  Menu Accelerators
 //
 IDM_ACCEL ACCELERATORS

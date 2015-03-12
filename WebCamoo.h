@@ -15,6 +15,7 @@
 
 #pragma once
 
+#define IDI_WEBCAMOO 100
 #define IDM_ACCEL 1
 #define IDM_MENU 101
 #define IDM_EXIT 1001

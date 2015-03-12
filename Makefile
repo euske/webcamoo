@@ -35,6 +35,7 @@ $(TARGET): WebCamoo.res WebCamoo.obj Filtaa.obj
 WebCamoo.cpp: WebCamoo.h
 Filtaa.cpp: Filtaa.h WebCamoo.h
 WebCamoo.rc: WebCamoo.h
+WebCamoo.res: WebCamoo.ico
 
 .cpp.obj:
 	$(CC) $(CFLAGS) /Fo$@ /c $< $(DEFS) $(INCLUDES)

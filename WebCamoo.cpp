@@ -1341,7 +1341,7 @@ int WebCamooMain(
         klass.lpszMenuName  = MAKEINTRESOURCE(IDM_MENU);
 	klass.hbrBackground = (HBRUSH)(COLOR_APPWORKSPACE+1);
         klass.hCursor       = LoadCursor(NULL, IDC_ARROW);
-        klass.hIcon         = NULL;
+        klass.hIcon         = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_WEBCAMOO));
         atom = RegisterClass(&klass);
         if (!atom) exit(111);
     }
