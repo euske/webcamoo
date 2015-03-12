@@ -393,7 +393,7 @@ class WebCamoo
     Filtaa* _pFiltaa;
     IMediaEventEx* _pME;
 
-    IVMRWindowlessControl* _pVW;
+    IVideoWindow* _pVW;
     FILTER_STATE _state;
     long _videoWidth;
     long _videoHeight;
@@ -489,19 +489,9 @@ HRESULT WebCamoo::InitializeCOM()
 
     // Create the video window.
     hr = CoCreateInstance(
-        CLSID_VideoMixingRenderer, NULL, CLSCTX_INPROC_SERVER,
+        CLSID_VideoRenderer, NULL, CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&_pVideoSink));
     if (FAILED(hr)) return hr;
-
-    {
-        // Make it windowless mode.
-        IVMRFilterConfig* pConfig = NULL;
-        hr = _pVideoSink->QueryInterface(IID_PPV_ARGS(&pConfig));
-        if (FAILED(hr)) return hr;
-        hr = pConfig->SetRenderingMode(VMRMode_Windowless);
-        if (FAILED(hr)) return hr;
-        pConfig->Release();
-    }
     
     // Obtain interfaces for Media Events.
     hr = _pGraph->QueryInterface(
@@ -705,6 +695,8 @@ HRESULT WebCamoo::ClearVideoFilterGraph()
 
     if (_pVW == NULL) return S_OK;
     
+    _pVW->put_Visible(OAFALSE);
+    _pVW->put_Owner(NULL);
     _pVW->Release();
     _pVW = NULL;
     _videoWidth = 0;
@@ -770,17 +762,27 @@ HRESULT WebCamoo::BuildVideoFilterGraph()
         if (FAILED(hr)) return hr;
         
         // Set the video window to be a child of the main window.
-        hr = _pVW->SetVideoClippingWindow(_hWnd);
+        hr = _pVW->put_Owner((OAHWND)_hWnd);
+        if (FAILED(hr)) return hr;
+        hr = _pVW->put_WindowStyle(WS_CHILD | WS_CLIPCHILDREN);
         if (FAILED(hr)) return hr;
     
         // Obtain the native video size.
-        hr = _pVW->GetNativeVideoSize(&_videoWidth, &_videoHeight,
-                                      NULL, NULL);
-        if (FAILED(hr)) return hr;
+        {
+            IBasicVideo* pVideo = NULL;
+            hr = _pVideoSink->QueryInterface(IID_PPV_ARGS(&pVideo));
+            if (FAILED(hr)) return hr;
+            hr = pVideo->GetVideoSize(&_videoWidth, &_videoHeight);
+            if (FAILED(hr)) return hr;
+            pVideo->Release();
+        }
         
         // Use helper function to position video window in client rect
         // of main application window.
         ResizeVideoWindow();
+
+        hr = _pVW->put_Visible(OATRUE);
+        if (FAILED(hr)) return hr;
     }
     
     return hr;
@@ -890,7 +892,7 @@ void WebCamoo::UninitializeWindow(void)
     SelectVideo(NULL);
     ClearAudioFilterGraph();
     SelectAudio(NULL);
-        
+    
     // Stop receiving events.
     _pME->SetNotifyWindow(0, WM_GRAPHNOTIFY, 0);
 
@@ -940,7 +942,9 @@ HRESULT WebCamoo::ResizeVideoWindow(void)
         ;
     }
 
-    hr = _pVW->SetVideoPosition(NULL, &rc);
+    hr = _pVW->SetWindowPosition(rc.left, rc.top,
+                                 rc.right-rc.left,
+                                 rc.bottom-rc.top);
     if (FAILED(hr)) return hr;
 
     InvalidateRect(_hWnd, NULL, TRUE);
@@ -1231,15 +1235,6 @@ void WebCamoo::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         ResizeVideoWindow();
         break;
         
-    case WM_PAINT:
-        if (_pVW != NULL) {
-            PAINTSTRUCT ps;
-            HDC hdc = BeginPaint(hWnd, &ps);
-            _pVW->RepaintVideo(hWnd, hdc);
-            EndPaint(hWnd, &ps);
-        }
-        break;
-        
     case WM_WINDOWPOSCHANGED:
         if (_pVW != NULL) {
             if (!IsWindowVisible(_hWnd) || IsIconic(_hWnd)) {
@@ -1368,7 +1363,7 @@ int WebCamooMain(
     // Otherwise, it will be black until video data arrives.
     ShowWindow(hWnd, nCmdShow);
 
-    app->DoCommand(IDM_DEVICE_VIDEO_START);
+    // app->DoCommand(IDM_DEVICE_VIDEO_START);
 
     // Main message loop.
     MSG msg;
