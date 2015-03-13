@@ -57,6 +57,15 @@ static inline int max2(int x, int y)
     return (x < y)? y : x;
 }
 
+static inline int rwidth(const RECT* r)
+{
+    return (r->right - r->left);
+}
+static inline int rheight(const RECT* r)
+{
+    return (r->bottom - r->top);
+}
+
 static FILE* logfp = NULL;      // logging
 static void log(LPCWSTR fmt, ...)
 {
@@ -920,8 +929,8 @@ HRESULT WebCamoo::ResizeVideoWindow(void)
     GetClientRect(_hWnd, &rc);
     BOOL keepRatio = isMenuItemChecked(GetMenu(_hWnd), IDM_KEEP_ASPECT_RATIO);
     if (keepRatio) {
-        int w0 = rc.right - rc.left;
-        int h0 = rc.bottom - rc.top;
+        int w0 = rwidth(&rc);
+        int h0 = rheight(&rc);
         int w1 = _videoWidth;
         int h1 = _videoHeight;
         if (w0*h1 < w1*h0) {
@@ -944,8 +953,7 @@ HRESULT WebCamoo::ResizeVideoWindow(void)
     }
 
     hr = _pVW->SetWindowPosition(rc.left, rc.top,
-                                 rc.right-rc.left,
-                                 rc.bottom-rc.top);
+                                 rwidth(&rc), rheight(&rc));
     if (FAILED(hr)) return hr;
 
     InvalidateRect(_hWnd, NULL, TRUE);
@@ -1118,8 +1126,8 @@ void WebCamoo::DoCommand(UINT cmd)
             GetWindowRect(_hWnd, &rw);
             GetClientRect(_hWnd, &rc);
             MoveWindow(_hWnd, rw.left, rw.top,
-                       _videoWidth+((rw.right-rw.left)-(rc.right-rc.left)),
-                       _videoHeight+((rw.bottom-rw.top)-(rc.bottom-rc.top)),
+                       _videoWidth+(rwidth(&rw)-rwidth(&rc)),
+                       _videoHeight+(rheight(&rw)-rheight(&rc)),
                        TRUE);
         }
         break;
