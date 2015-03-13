@@ -1,3 +1,4 @@
+// -*- tab-width: 4; mode: c++ -*-
 //  WebCamoo.cpp
 //
 //  This code is based on the "playcap" sample from Microsoft SDK,
@@ -1337,13 +1338,14 @@ int WebCamooMain(
     ATOM atom;
     {
         WNDCLASS klass = {0};
+        klass.style         = CS_BYTEALIGNCLIENT | CS_VREDRAW | CS_HREDRAW;
         klass.lpfnWndProc   = WndMainProc;
         klass.hInstance     = hInstance;
-        klass.lpszClassName = L"WebCamooClass";
-        klass.lpszMenuName  = MAKEINTRESOURCE(IDM_MENU);
-	klass.hbrBackground = (HBRUSH)(COLOR_APPWORKSPACE+1);
-        klass.hCursor       = LoadCursor(NULL, IDC_ARROW);
         klass.hIcon         = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_WEBCAMOO));
+        klass.hCursor       = LoadCursor(NULL, IDC_ARROW);
+        klass.hbrBackground = (HBRUSH)(COLOR_APPWORKSPACE+1);
+        klass.lpszMenuName  = MAKEINTRESOURCE(IDM_MENU);
+        klass.lpszClassName = L"WebCamooClass";
         atom = RegisterClass(&klass);
         if (!atom) exit(111);
     }
@@ -1355,7 +1357,7 @@ int WebCamooMain(
     HWND hWnd = CreateWindow(
         (LPCTSTR)atom,
         APPLICATION_NAME,
-        WS_OVERLAPPEDWINDOW | WS_CAPTION | WS_CLIPCHILDREN,
+        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         CW_USEDEFAULT, CW_USEDEFAULT,
         CW_USEDEFAULT, CW_USEDEFAULT,
         NULL, NULL, hInstance, app);

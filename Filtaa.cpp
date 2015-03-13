@@ -1,3 +1,4 @@
+// -*- tab-width: 4; mode: c++ -*-
 //  Filtaa.cpp
 
 #include <stdio.h>

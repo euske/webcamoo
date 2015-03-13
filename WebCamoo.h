@@ -1,3 +1,4 @@
+// -*- tab-width: 4; mode: c++ -*-
 //  WebCamoo.h
 //
 //  This code is based on the "playcap" sample from Microsoft SDK,
