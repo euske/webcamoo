@@ -1112,6 +1112,18 @@ void WebCamoo::DoCommand(UINT cmd)
         ResizeVideoWindow();
         break;
 
+    case IDM_RESET_WINDOW_SIZE:
+        if (_videoWidth != 0 && _videoHeight != 0 && _pVW != NULL) {
+            RECT rw, rc;
+            GetWindowRect(_hWnd, &rw);
+            GetClientRect(_hWnd, &rc);
+            MoveWindow(_hWnd, rw.left, rw.top,
+                       _videoWidth+((rw.right-rw.left)-(rc.right-rc.left)),
+                       _videoHeight+((rw.bottom-rw.top)-(rc.bottom-rc.top)),
+                       TRUE);
+        }
+        break;
+
     case IDM_THRESHOLDING:
         UpdatePlayState(State_Stopped);
         toggleMenuItemChecked(hMenu, cmd);
