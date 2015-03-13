@@ -1272,6 +1272,11 @@ void WebCamoo::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         DestroyWindow(_hWnd);
         break;
     }
+
+    // Pass this message to the video window for notification of system changes.
+    if (_pVW != NULL) {
+        _pVW->NotifyOwnerMessage((LONG_PTR)_hWnd, uMsg, wParam, lParam);
+    }
 }
 
 static LRESULT CALLBACK WndMainProc(
