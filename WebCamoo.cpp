@@ -706,7 +706,6 @@ HRESULT WebCamoo::ClearVideoFilterGraph()
     if (_pVW == NULL) return S_OK;
     
     _pVW->put_Visible(OAFALSE);
-    _pVW->put_Owner(NULL);
     _pVW->Release();
     _pVW = NULL;
     _videoWidth = 0;
@@ -902,6 +901,15 @@ void WebCamoo::UninitializeWindow(void)
     SelectVideo(NULL);
     ClearAudioFilterGraph();
     SelectAudio(NULL);
+    
+    // Release the video window.
+    {
+        IVideoWindow* pVW = NULL;
+        HRESULT hr = _pVideoSink->QueryInterface(IID_PPV_ARGS(&pVW));
+        if (SUCCEEDED(hr)) {
+            pVW->put_Owner(NULL);
+        }
+    }
     
     // Stop receiving events.
     _pME->SetNotifyWindow(0, WM_GRAPHNOTIFY, 0);
