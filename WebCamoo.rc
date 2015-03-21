@@ -26,7 +26,7 @@ BEGIN
             VALUE "FileDescription", "WebCamoo Application\0"
             VALUE "FileVersion", "9.00\0"
             VALUE "InternalName", "WebCamoo\0"
-            VALUE "LegalCopyright", "Copyright (c) Yusuke Shinyama\0"
+            VALUE "LegalCopyright", "Copyright (c) 2015 Yusuke Shinyama\0"
             VALUE "LegalTrademarks", "\0"
             VALUE "OriginalFilename", "WebCamoo.EXE\0"
             VALUE "PrivateBuild", "\0"
@@ -49,12 +49,24 @@ IDI_WEBCAMOO ICON "WebCamoo.ico"
 
 //  Menu Accelerators
 //
-IDM_ACCEL ACCELERATORS
+IDA_ACCEL ACCELERATORS
 BEGIN
     "^B", IDM_THRESHOLDING
     0x30, IDM_AUTO_THRESHOLD, VIRTKEY, CONTROL
     VK_OEM_PLUS, IDM_INC_THRESHOLD, VIRTKEY, CONTROL
     VK_OEM_MINUS, IDM_DEC_THRESHOLD, VIRTKEY, CONTROL
+END
+
+
+//  About dialog
+//
+IDD_ABOUT DIALOG 0, 0, 160, 70
+STYLE WS_POPUPWINDOW | WS_CAPTION | WS_SYSMENU
+CAPTION "About"
+Font 9, "Tahoma"
+BEGIN
+   CTEXT "WebCamoo\nCopyright (c) 2015\nYusuke Shinyama" IDC_STATIC 10, 10, 140, 40
+   DEFPUSHBUTTON "OK", IDOK, 60, 50, 40, 16
 END
 
 
@@ -90,4 +102,10 @@ BEGIN
 	MENUITEM "Increase Threshold\tCtrl++", IDM_INC_THRESHOLD
 	MENUITEM "Decrease Threshold\tCtrl+-", IDM_DEC_THRESHOLD
     END
+
+    POPUP "&Help"
+    BEGIN
+	MENUITEM "&About...", IDM_ABOUT
+    END
+
 END

@@ -390,6 +390,31 @@ static HRESULT disconnectFilters(
     return hr;    
 }   
 
+// aboutDialogProc: dialog proc.
+static INT_PTR CALLBACK aboutDialogProc(
+    HWND hWnd,
+    UINT uMsg,
+    WPARAM wParam,
+    LPARAM lParam)
+{
+    switch (uMsg) {
+    case WM_INITDIALOG:
+        return TRUE;
+        
+    case WM_COMMAND:
+        switch (LOWORD(wParam)) {
+        case IDOK:
+        case IDCANCEL:
+            EndDialog(hWnd, LOWORD(wParam));
+            break;
+        }
+        return TRUE;
+        
+    default:
+        return FALSE;
+    }
+}
+
 class WebCamoo
 {
     IGraphBuilder* _pGraph;
@@ -1131,6 +1156,11 @@ void WebCamoo::DoCommand(UINT cmd)
         SendMessage(_hWnd, WM_CLOSE, 0, 0);
         break;
 
+    case IDM_ABOUT:
+        DialogBox(NULL, MAKEINTRESOURCE(IDD_ABOUT),
+                  _hWnd, aboutDialogProc);
+        break;
+        
     case IDM_KEEP_ASPECT_RATIO:
         toggleMenuItemChecked(hMenu, cmd);
         ResizeVideoWindow();
@@ -1392,7 +1422,7 @@ int WebCamooMain(
         atom = RegisterClass(&klass);
         if (!atom) exit(111);
     }
-    HACCEL hAccel = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDM_ACCEL));
+    HACCEL hAccel = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDA_ACCEL));
     if (!hAccel) exit(111);
 
     // Create the main window.
