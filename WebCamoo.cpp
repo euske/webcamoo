@@ -434,6 +434,7 @@ class WebCamoo
     FILTER_STATE _state;
 
     HWND _hWnd;
+    HMENU _hMenu;
     HMENU _deviceMenu;
     HDEVNOTIFY _notify;
     IMoniker* _pVideoMoniker;
@@ -487,6 +488,7 @@ WebCamoo::WebCamoo()
     _videoHeight = 0;
 
     _hWnd = NULL;
+    _hMenu = NULL;
     _deviceMenu = NULL;
     _notify = NULL;
     _pVideoMoniker = NULL;
@@ -675,22 +677,21 @@ void WebCamoo::UpdateDeviceMenuChecks()
 // UpdateOutputMenu
 void WebCamoo::UpdateOutputMenu()
 {
-    HMENU hMenu = GetMenu(_hWnd);
     if (_pVideoWindow == NULL || _state != State_Running) {
-        setMenuItemDisabled(hMenu, IDM_KEEP_ASPECT_RATIO, TRUE);
-        setMenuItemDisabled(hMenu, IDM_RESET_WINDOW_SIZE, TRUE);
-        setMenuItemDisabled(hMenu, IDM_THRESHOLDING, TRUE);
-        setMenuItemDisabled(hMenu, IDM_AUTO_THRESHOLD, TRUE);
-        setMenuItemDisabled(hMenu, IDM_INC_THRESHOLD, TRUE);
-        setMenuItemDisabled(hMenu, IDM_DEC_THRESHOLD, TRUE);
+        setMenuItemDisabled(_hMenu, IDM_KEEP_ASPECT_RATIO, TRUE);
+        setMenuItemDisabled(_hMenu, IDM_RESET_WINDOW_SIZE, TRUE);
+        setMenuItemDisabled(_hMenu, IDM_THRESHOLDING, TRUE);
+        setMenuItemDisabled(_hMenu, IDM_AUTO_THRESHOLD, TRUE);
+        setMenuItemDisabled(_hMenu, IDM_INC_THRESHOLD, TRUE);
+        setMenuItemDisabled(_hMenu, IDM_DEC_THRESHOLD, TRUE);
     } else {
-        setMenuItemDisabled(hMenu, IDM_KEEP_ASPECT_RATIO, FALSE);
-        setMenuItemDisabled(hMenu, IDM_RESET_WINDOW_SIZE, FALSE);
-        setMenuItemDisabled(hMenu, IDM_THRESHOLDING, FALSE);
-        BOOL thresholding = isMenuItemChecked(hMenu, IDM_THRESHOLDING);
-        setMenuItemDisabled(hMenu, IDM_AUTO_THRESHOLD, !thresholding);
-        setMenuItemDisabled(hMenu, IDM_INC_THRESHOLD, !thresholding);
-        setMenuItemDisabled(hMenu, IDM_DEC_THRESHOLD, !thresholding);
+        setMenuItemDisabled(_hMenu, IDM_KEEP_ASPECT_RATIO, FALSE);
+        setMenuItemDisabled(_hMenu, IDM_RESET_WINDOW_SIZE, FALSE);
+        setMenuItemDisabled(_hMenu, IDM_THRESHOLDING, FALSE);
+        BOOL thresholding = isMenuItemChecked(_hMenu, IDM_THRESHOLDING);
+        setMenuItemDisabled(_hMenu, IDM_AUTO_THRESHOLD, !thresholding);
+        setMenuItemDisabled(_hMenu, IDM_INC_THRESHOLD, !thresholding);
+        setMenuItemDisabled(_hMenu, IDM_DEC_THRESHOLD, !thresholding);
     }
 }
 
@@ -763,7 +764,7 @@ HRESULT WebCamoo::BuildVideoFilterGraph()
 
     if (_pVideoWindow != NULL) return S_OK;
 
-    BOOL thresholding = isMenuItemChecked(GetMenu(_hWnd), IDM_THRESHOLDING);
+    BOOL thresholding = isMenuItemChecked(_hMenu, IDM_THRESHOLDING);
     if (_pVideoSrc != NULL &&
         _pVideoSink != NULL) {
         // Add Capture filter to our graph.
@@ -902,7 +903,8 @@ HRESULT WebCamoo::InitializeWindow(HWND hWnd)
     HRESULT hr;
 
     _hWnd = hWnd;
-    _deviceMenu = GetSubMenu(GetMenu(hWnd), 1);
+    _hMenu = GetMenu(hWnd);
+    _deviceMenu = GetSubMenu(_hMenu, 1);
     UpdateDeviceMenuItems();
     UpdateOutputMenu();
     
@@ -951,7 +953,8 @@ void WebCamoo::UninitializeWindow(void)
         ResetCaptureDevices(_deviceMenu);
         _deviceMenu = NULL;
     }
-    
+
+    _hMenu = NULL;
     _hWnd = NULL;
 }
 
@@ -963,7 +966,7 @@ HRESULT WebCamoo::ResizeVideoWindow(void)
     // Resize the video preview window to match owner window size
     RECT rc;
     GetClientRect(_hWnd, &rc);
-    BOOL keepRatio = isMenuItemChecked(GetMenu(_hWnd), IDM_KEEP_ASPECT_RATIO);
+    BOOL keepRatio = isMenuItemChecked(_hMenu, IDM_KEEP_ASPECT_RATIO);
     if (keepRatio) {
         int w0 = rwidth(&rc);
         int h0 = rheight(&rc);
@@ -1144,12 +1147,13 @@ HRESULT WebCamoo::OpenAudioFilterProperties()
 
 void WebCamoo::DoCommand(UINT cmd)
 {
-    HMENU hMenu = findSubMenu(GetMenu(_hWnd), cmd);
+    HMENU hMenu = findSubMenu(_hMenu, cmd);
     WCHAR name[1024];
     MENUITEMINFO mii = {0};
     mii.cbSize = sizeof(mii);
     mii.dwTypeData = name;
     mii.cch = 1024;
+    log(L"DoCommand: %d", cmd);
 
     switch (cmd) {
     case IDM_EXIT:
@@ -1159,6 +1163,14 @@ void WebCamoo::DoCommand(UINT cmd)
     case IDM_ABOUT:
         DialogBox(NULL, MAKEINTRESOURCE(IDD_ABOUT),
                   _hWnd, aboutDialogProc);
+        break;
+        
+    case IDM_TOGGLE_MENUBAR:
+        if (GetMenu(_hWnd) == NULL) {
+            SetMenu(_hWnd, _hMenu);
+        } else {
+            SetMenu(_hWnd, NULL);
+        }
         break;
         
     case IDM_KEEP_ASPECT_RATIO:
