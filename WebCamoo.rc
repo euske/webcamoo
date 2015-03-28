@@ -66,7 +66,7 @@ STYLE WS_POPUPWINDOW | WS_CAPTION | WS_SYSMENU
 CAPTION "About"
 Font 9, "Tahoma"
 BEGIN
-   CTEXT "WebCamoo\nCopyright (c) 2015\nYusuke Shinyama" IDC_STATIC 10, 10, 140, 40
+   CTEXT "WebCamoo\nCopyright (c) 2015, Yusuke Shinyama\nhttps://github.com/euske/webcamoo" IDC_STATIC 10, 10, 140, 40
    DEFPUSHBUTTON "OK", IDOK, 60, 50, 40, 16
 END
 
