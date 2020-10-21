@@ -59,7 +59,7 @@ static HRESULT eraseMediaType(AM_MEDIA_TYPE* mt)
 }
 
 // mt2str: returns a text that describes a media type. (for debugging)
-static LPCWSTR mt2str(const AM_MEDIA_TYPE* mt)
+__attribute__((unused)) static LPCWSTR mt2str(const AM_MEDIA_TYPE* mt)
 {
     if (mt == NULL) return L"<null>";
 
@@ -69,7 +69,7 @@ static LPCWSTR mt2str(const AM_MEDIA_TYPE* mt)
     } else {
         swprintf_s(major, _countof(major), L"[%08x]", mt->majortype.Data1);
     }
-    
+
     static WCHAR sub[64];
     if (mt->subtype == MEDIASUBTYPE_RGB24) {
         swprintf_s(sub, _countof(sub), L"RGB24");
@@ -80,7 +80,7 @@ static LPCWSTR mt2str(const AM_MEDIA_TYPE* mt)
     } else {
         swprintf_s(sub, _countof(sub), L"[%08x]", mt->subtype.Data1);
     }
-    
+
     static WCHAR format[64];
     if (mt->formattype == FORMAT_VideoInfo && mt->cbFormat) {
         VIDEOINFOHEADER* vi = (VIDEOINFOHEADER*)mt->pbFormat;
@@ -89,11 +89,21 @@ static LPCWSTR mt2str(const AM_MEDIA_TYPE* mt)
     } else {
         swprintf_s(format, _countof(format), L"[%08x]", mt->formattype.Data1);
     }
-    
+
     static WCHAR buf[256];
     swprintf_s(buf, _countof(buf),
                L"<major=%s, sub=%s, size=%lu, format=%s>",
                major, sub, mt->lSampleSize, format);
+    return buf;
+}
+
+// prop2str: returns a text that describes allocator properties. (for debugging)
+__attribute__((unused)) static LPCWSTR prop2str(const ALLOCATOR_PROPERTIES* prop)
+{
+    static WCHAR buf[256];
+    swprintf_s(buf, _countof(buf),
+               L"<c=%ld, cb=%ld, align=%ld, prefix=%ld>",
+               prop->cBuffers, prop->cbBuffer, prop->cbAlign, prop->cbPrefix);
     return buf;
 }
 
@@ -106,16 +116,6 @@ static BOOL isPropAcceptable(
             req->cbBuffer <= given->cbBuffer &&
             req->cbAlign == given->cbAlign &&
             req->cbPrefix == given->cbPrefix);
-}
-
-// prop2str: returns a text that describes allocator properties. (for debugging)
-static LPCWSTR prop2str(const ALLOCATOR_PROPERTIES* prop)
-{
-    static WCHAR buf[256];
-    swprintf_s(buf, _countof(buf),
-               L"<c=%ld, cb=%ld, align=%ld, prefix=%ld>",
-               prop->cBuffers, prop->cbBuffer, prop->cbAlign, prop->cbPrefix);
-    return buf;
 }
 
 // copyMediaSample: copy the content of an IMediaSample instance.
@@ -164,7 +164,7 @@ static HRESULT copyMediaSample(IMediaSample* dst, IMediaSample* src)
             CoTaskMemFree(mt);
         }
     }
-    
+
     hr = dst->SetActualDataLength(size);
 
     // copy the actual buffer.
@@ -177,13 +177,13 @@ static HRESULT copyMediaSample(IMediaSample* dst, IMediaSample* src)
             CopyMemory(pDst, pSrc, size);
         }
     }
-    
+
     return S_OK;
 }
 
 
 //  IEnumPins object
-// 
+//
 class FiltaaEnumPins : public IEnumPins
 {
 private:
@@ -191,8 +191,8 @@ private:
     IPin* _pins[2];
     int _npins;
     int _index;
-    
-    ~FiltaaEnumPins() {
+
+    virtual ~FiltaaEnumPins() {
         for (int i = 0; i < _npins; i++) {
             _pins[i]->Release();
         }
@@ -272,7 +272,7 @@ public:
 
 
 //  FiltaaEnumMediaTypes object
-// 
+//
 class FiltaaEnumMediaTypes : public IEnumMediaTypes
 {
 private:
@@ -281,7 +281,7 @@ private:
     int _nmts;
     int _index;
 
-    ~FiltaaEnumMediaTypes() {
+    virtual ~FiltaaEnumMediaTypes() {
         eraseMediaType(&(_mts[0]));
     }
 
@@ -293,7 +293,7 @@ public:
         _index = index;
         AddRef();
     }
-    
+
     // IUnknown methods
     STDMETHODIMP QueryInterface(REFIID iid, void** ppvObject) {
         if (ppvObject == NULL) return E_POINTER;
@@ -367,9 +367,9 @@ private:
     PIN_DIRECTION _direction;
     IPin* _connected;
     BOOL _flushing;
-    
-    ~FiltaaInputPin();
-    
+
+    virtual ~FiltaaInputPin();
+
 public:
     FiltaaInputPin(Filtaa* filter, LPCWSTR name, PIN_DIRECTION direction);
 
@@ -410,7 +410,7 @@ public:
         //fwprintf(stderr, L"InputPin(%s).NewSegment\n", _name);
         return _filter->NewSegment(tStart, tStop, dRate);
     }
-    
+
     STDMETHODIMP Connect(IPin* pReceivePin, const AM_MEDIA_TYPE* pmt);
     STDMETHODIMP ConnectedTo(IPin** ppPin);
     STDMETHODIMP ConnectionMediaType(AM_MEDIA_TYPE* pmt);
@@ -421,7 +421,7 @@ public:
     STDMETHODIMP QueryAccept(const AM_MEDIA_TYPE* pmt);
     STDMETHODIMP QueryDirection(PIN_DIRECTION* pPinDir);
     STDMETHODIMP QueryPinInfo(PIN_INFO* pInfo);
-    
+
     STDMETHODIMP QueryInternalConnections(IPin**, ULONG*)
         { return E_NOTIMPL; }
 
@@ -430,7 +430,7 @@ public:
         //fwprintf(stderr, L"InputPin(%s).GetAllocatorRequirements\n", _name);
         if (_direction != PINDIR_INPUT) return E_UNEXPECTED;
         return _filter->GetAllocatorRequirements(pProp);
-    }        
+    }
     STDMETHODIMP GetAllocator(IMemAllocator** ppAllocator) {
         //fwprintf(stderr, L"InputPin(%s).GetAllocator\n", _name);
         if (_direction != PINDIR_INPUT) return E_UNEXPECTED;
@@ -440,7 +440,7 @@ public:
         //fwprintf(stderr, L"InputPin(%s).NotifyAllocator\n", _name);
         if (_direction != PINDIR_INPUT) return E_UNEXPECTED;
         return _filter->NotifyAllocator(pAllocator, bReadOnly);
-    }        
+    }
     STDMETHODIMP Receive(IMediaSample* pSample) {
         if (_direction != PINDIR_INPUT) return E_UNEXPECTED;
         return _filter->Receive(pSample);
@@ -448,7 +448,7 @@ public:
     STDMETHODIMP ReceiveCanBlock()
         { return S_FALSE; }
     STDMETHODIMP ReceiveMultiple(IMediaSample** pSamples, long nSamples, long* nSamplesProcessed);
-    
+
 };
 
 FiltaaInputPin::FiltaaInputPin(Filtaa* filter, LPCWSTR name, PIN_DIRECTION direction)
@@ -511,11 +511,11 @@ STDMETHODIMP FiltaaInputPin::Connect(IPin* pReceivePin, const AM_MEDIA_TYPE* mt)
     if (pReceivePin == NULL) return E_POINTER;
     if (_direction != PINDIR_OUTPUT) return E_UNEXPECTED;
     if (_connected != NULL) return VFW_E_ALREADY_CONNECTED;
-    
+
     //fwprintf(stderr, L"InputPin(%s).Connect: pin=%p, mt=%s\n", _name, pReceivePin, mt2str(mt));
     hr = _filter->Connect(pReceivePin, mt);
     if (FAILED(hr)) return hr;
-    
+
     // assert(_connected == NULL);
     _connected = pReceivePin;
     _connected->AddRef();
@@ -529,10 +529,10 @@ STDMETHODIMP FiltaaInputPin::ReceiveConnection(IPin* pConnector, const AM_MEDIA_
     if (_direction != PINDIR_INPUT) return E_UNEXPECTED;
     if (_connected != NULL) return VFW_E_ALREADY_CONNECTED;
     //fwprintf(stderr, L"InputPin(%s).ReceiveConnection: pin=%p, mt=%s\n", _name, pConnector, mt2str(mt));
-    
+
     hr = _filter->ReceiveConnection(mt);
     if (FAILED(hr)) return hr;
-    
+
     _connected = pConnector;
     _connected->AddRef();
     return S_OK;
@@ -603,11 +603,11 @@ STDMETHODIMP FiltaaInputPin::QueryPinInfo(PIN_INFO* pInfo)
     StringCchCopy(pInfo->achName, _countof(pInfo->achName), _name);
     return S_OK;
 }
-    
+
 STDMETHODIMP FiltaaInputPin::ReceiveMultiple(
     IMediaSample** pSamples, long nSamples, long* nSamplesProcessed)
 {
-    HRESULT hr;
+    HRESULT hr = S_OK;
     if (pSamples == NULL) return E_POINTER;
 
     long n = 0;
@@ -619,7 +619,7 @@ STDMETHODIMP FiltaaInputPin::ReceiveMultiple(
     if (nSamplesProcessed != NULL) {
         *nSamplesProcessed = n;
     }
-    
+
     return hr;
 }
 
@@ -862,7 +862,7 @@ HRESULT Filtaa::NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly)
         _allocatorOut->Release();
         _allocatorOut = NULL;
     }
-    
+
     ALLOCATOR_PROPERTIES req = {0};
     hr = GetAllocatorRequirements(&req);
     if (FAILED(hr)) return hr;
@@ -874,7 +874,7 @@ HRESULT Filtaa::NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly)
         if (FAILED(hr)) return hr;
         if (!isPropAcceptable(&req, &given)) return E_FAIL;
     }
-    
+
     return S_OK;
 }
 
@@ -882,7 +882,7 @@ HRESULT Filtaa::Receive(IMediaSample* pSample)
 {
     HRESULT hr;
     if (pSample == NULL) return E_POINTER;
-    
+
     //fwprintf(stderr, L"Filtaa.Receive: %p\n", pSample);
     IMediaSample* pRWSample = NULL;
     if (_allocatorOut != NULL) {
@@ -897,7 +897,7 @@ HRESULT Filtaa::Receive(IMediaSample* pSample)
         pRWSample = pSample;
         pRWSample->AddRef();
     }
-    
+
     AM_MEDIA_TYPE* mt = NULL;
     hr = pRWSample->GetMediaType(&mt);
     if (mt == NULL || isMediaTypeEqual(&_mediatype, mt)) {
@@ -911,7 +911,7 @@ HRESULT Filtaa::Receive(IMediaSample* pSample)
         _transport->Receive(pRWSample);
     }
     pRWSample->Release();
-    
+
     return S_OK;
 }
 
@@ -937,7 +937,7 @@ HRESULT Filtaa::Connect(IPin* pReceivePin, const AM_MEDIA_TYPE* mt)
     if (_state != State_Stopped) return VFW_E_NOT_STOPPED;
     if (_pIn->Connected() == NULL) return VFW_E_NO_ACCEPTABLE_TYPES;
     if (mt != NULL && !isMediaTypeEqual(&_mediatype, mt)) return VFW_E_TYPE_NOT_ACCEPTED;
-    
+
     hr = pReceivePin->ReceiveConnection((IPin*)_pOut, &_mediatype);
     if (FAILED(hr)) return hr;
 
@@ -948,7 +948,7 @@ HRESULT Filtaa::Connect(IPin* pReceivePin, const AM_MEDIA_TYPE* mt)
         ((_allocatorOut != NULL)? _allocatorOut : _allocatorIn),
         FALSE);
     if (FAILED(hr)) return hr;
-    
+
     return S_OK;
 }
 
@@ -1092,7 +1092,7 @@ HRESULT Filtaa::TransformSample(IMediaSample* pSample)
     int height = vi->bmiHeader.biHeight;
     size_t linesize = align32(width * 3);
     int threshold = (0 <= _threshold)? _threshold : _autoThreshold;
-    
+
     memset(_hist, 0, sizeof(ULONG)*256);
     for (int y = 0; y < height; y++) {
         RGBTRIPLE* p = (RGBTRIPLE*)line;
@@ -1109,6 +1109,6 @@ HRESULT Filtaa::TransformSample(IMediaSample* pSample)
         line += linesize;
     }
     _autoThreshold = getAutoThreshold(_hist);
-    
+
     return S_OK;
 }

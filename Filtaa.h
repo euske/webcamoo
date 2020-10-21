@@ -31,15 +31,15 @@ private:
     int _autoThreshold;
     RGBTRIPLE _fgColor;
     RGBTRIPLE _bgColor;
-    
-    ~Filtaa();
+
+    virtual ~Filtaa();
     HRESULT BeginTransform();
     HRESULT EndTransform();
     HRESULT TransformSample(IMediaSample* pSample);
-    
+
 public:
     Filtaa();
-    
+
     // IUnknown methods
     STDMETHODIMP QueryInterface(REFIID iid, void** ppvObject);
     STDMETHODIMP_(ULONG) AddRef() {
@@ -95,7 +95,7 @@ public:
     HRESULT EndFlush();
     HRESULT EndOfStream();
     HRESULT NewSegment(REFERENCE_TIME tStart, REFERENCE_TIME tStop, double dRate);
-    
+
     HRESULT GetAllocatorRequirements(ALLOCATOR_PROPERTIES* pProp);
     HRESULT GetAllocator(IMemAllocator** ppAllocator);
     HRESULT NotifyAllocator(IMemAllocator* pAllocator, BOOL bReadOnly);

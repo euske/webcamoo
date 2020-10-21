@@ -25,13 +25,6 @@
 #include "WebCamoo.h"
 #include "Filtaa.h"
 
-#pragma comment(lib, "user32.lib")
-#pragma comment(lib, "shell32.lib")
-#pragma comment(lib, "gdi32.lib")
-#pragma comment(lib, "ole32.lib")
-#pragma comment(lib, "oleaut32.lib")
-#pragma comment(lib, "strmiids.lib")
-
 
 //  Constants
 //
@@ -166,7 +159,7 @@ static void setMenuItemDisabled(HMENU hMenu, UINT id, BOOL disabled)
 static const int REGISTER_FILTERGRAPH = 1;
 
 // Adds a filter graph to the Running Object Table.
-static HRESULT AddGraphToRot(IUnknown* pUnkGraph, DWORD* pdwRegister) 
+static HRESULT AddGraphToRot(IUnknown* pUnkGraph, DWORD* pdwRegister)
 {
     HRESULT hr;
 
@@ -180,7 +173,7 @@ static HRESULT AddGraphToRot(IUnknown* pUnkGraph, DWORD* pdwRegister)
         hr = StringCchPrintfW(
             wsz, NUMELMS(wsz),
             L"FilterGraph %08x pid %08x\0",
-            (DWORD_PTR)pUnkGraph, 
+            (DWORD_PTR)pUnkGraph,
             GetCurrentProcessId());
 
         hr = CreateItemMoniker(L"!", wsz, &pMoniker);
@@ -190,17 +183,17 @@ static HRESULT AddGraphToRot(IUnknown* pUnkGraph, DWORD* pdwRegister)
             // registered until it is explicitly revoked with the Revoke() method.
             //
             // Not using this flag means that if GraphEdit remotely connects
-            // to this graph and then GraphEdit exits, this object registration 
+            // to this graph and then GraphEdit exits, this object registration
             // will be deleted, causing future attempts by GraphEdit to fail until
             // this application is restarted or until the graph is registered again.
             hr = pROT->Register(
-                ROTFLAGS_REGISTRATIONKEEPSALIVE, pUnkGraph, 
+                ROTFLAGS_REGISTRATIONKEEPSALIVE, pUnkGraph,
                 pMoniker, pdwRegister);
             pMoniker->Release();
         }
         pROT->Release();
     }
-    
+
     return hr;
 }
 
@@ -208,7 +201,7 @@ static HRESULT AddGraphToRot(IUnknown* pUnkGraph, DWORD* pdwRegister)
 static void RemoveGraphFromRot(DWORD pdwRegister)
 {
     HRESULT hr;
-    
+
     IRunningObjectTable* pROT = NULL;
     hr = GetRunningObjectTable(0, &pROT);
     if (SUCCEEDED(hr)) {
@@ -268,18 +261,18 @@ static HRESULT AddCaptureDevices(HMENU hMenu, int pos, UINT wID, CLSID category)
     hr = CoCreateInstance(
         CLSID_SystemDeviceEnum, NULL, CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&pDevEnum));
-    
+
     if (SUCCEEDED(hr)) {
         // Create an enumerator for the video capture devices.
         IEnumMoniker* pClassEnum = NULL;
         hr = pDevEnum->CreateClassEnumerator(
             category, &pClassEnum, 0);
-        
-        // If there are no enumerators for the requested type, then 
+
+        // If there are no enumerators for the requested type, then
         // CreateClassEnumerator will succeed, but pClassEnum will be NULL.
         if (SUCCEEDED(hr) && pClassEnum != NULL) {
             IMoniker* pMoniker = NULL;
-            
+
             // Use the first video capture device on the device list.
             // Note that if the Next() call succeeds but there are no monikers,
             // it will return S_FALSE (which is not a failure).  Therefore, we
@@ -346,7 +339,7 @@ static HRESULT findPin(
         }
         pEnum->Release();
     }
-    
+
     return hr;
 }
 
@@ -387,8 +380,8 @@ static HRESULT disconnectFilters(
         }
     }
 
-    return hr;    
-}   
+    return hr;
+}
 
 // aboutDialogProc: dialog proc.
 static INT_PTR CALLBACK aboutDialogProc(
@@ -400,7 +393,7 @@ static INT_PTR CALLBACK aboutDialogProc(
     switch (uMsg) {
     case WM_INITDIALOG:
         return TRUE;
-        
+
     case WM_COMMAND:
         switch (LOWORD(wParam)) {
         case IDOK:
@@ -409,7 +402,7 @@ static INT_PTR CALLBACK aboutDialogProc(
             break;
         }
         return TRUE;
-        
+
     default:
         return FALSE;
     }
@@ -450,14 +443,14 @@ class WebCamoo
     HRESULT BuildAudioFilterGraph();
     HRESULT SelectVideo(IMoniker* pVideoMoniker);
     HRESULT SelectAudio(IMoniker* pAudioMoniker);
-    
+
     HRESULT ResizeVideoWindow(void);
     HRESULT HandleGraphEvent(void);
 
     HRESULT OpenVideoFilterProperties();
     HRESULT OpenVideoPinProperties();
     HRESULT OpenAudioFilterProperties();
-    
+
 public:
     WebCamoo();
     ~WebCamoo();
@@ -474,14 +467,14 @@ WebCamoo::WebCamoo()
     _pGraph = NULL;
     _pCapture = NULL;
     _dwGraphRegister = 0;
-    
+
     _pVideoSrc = NULL;
     _pAudioSrc = NULL;
     _pVideoSink = NULL;
     _pAudioSink = NULL;
     _pFiltaa = new Filtaa();
     _pMediaEvent = NULL;
-    
+
     _pVideoWindow = NULL;
     _state = State_Stopped;
     _videoWidth = 0;
@@ -529,10 +522,10 @@ HRESULT WebCamoo::InitializeCOM()
         CLSID_VideoRenderer, NULL, CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&_pVideoSink));
     if (FAILED(hr)) return hr;
-    
+
     // Obtain interfaces for Media Events.
     hr = _pGraph->QueryInterface(
-        IID_PPV_ARGS(&_pMediaEvent));
+        IID_IMediaEventEx, (void**)&_pMediaEvent);
     if (FAILED(hr)) return hr;
 
     // Create the audio output.
@@ -550,7 +543,7 @@ WebCamoo::~WebCamoo()
         _pFiltaa->Release();
         _pFiltaa = NULL;
     }
-    
+
     if (_pMediaEvent != NULL) {
         _pMediaEvent->Release();
         _pMediaEvent = NULL;
@@ -560,14 +553,14 @@ WebCamoo::~WebCamoo()
         _pVideoSink->Release();
         _pVideoSink = NULL;
     }
-    
+
     if (_pAudioSink != NULL) {
         _pAudioSink->Release();
         _pAudioSink = NULL;
     }
-    
+
     if (REGISTER_FILTERGRAPH) {
-        // Remove filter graph from the running object table   
+        // Remove filter graph from the running object table
         if (_dwGraphRegister) {
             RemoveGraphFromRot(_dwGraphRegister);
             _dwGraphRegister = 0;
@@ -589,7 +582,7 @@ WebCamoo::~WebCamoo()
 void WebCamoo::UpdateDeviceMenuItems()
 {
     log(L"UpdateDeviceMenuItems");
-    
+
     ResetCaptureDevices(_deviceMenu);
     AddCaptureDevices(
         _deviceMenu,
@@ -597,7 +590,7 @@ void WebCamoo::UpdateDeviceMenuItems()
         IDM_DEVICE_VIDEO_START,
         CLSID_VideoInputDeviceCategory);
     AddCaptureDevices(
-        _deviceMenu, 
+        _deviceMenu,
         findMenuItemPos(_deviceMenu, IDM_DEVICE_AUDIO_NONE),
         IDM_DEVICE_AUDIO_START,
         CLSID_AudioInputDeviceCategory);
@@ -609,11 +602,11 @@ void WebCamoo::UpdateDeviceMenuChecks()
     HRESULT hr;
     MENUITEMINFO mii = {0};
     mii.cbSize = sizeof(mii);
-    
+
     BOOL videoFilterProp = FALSE;
     BOOL videoPinProp = FALSE;
     BOOL audioFilterProp = FALSE;
-    
+
     if (_pVideoSrc != NULL) {
         ISpecifyPropertyPages* pSpec = NULL;
         hr = _pVideoSrc->QueryInterface(IID_PPV_ARGS(&pSpec));
@@ -649,7 +642,7 @@ void WebCamoo::UpdateDeviceMenuChecks()
                         !videoPinProp);
     setMenuItemDisabled(_deviceMenu, IDM_OPEN_AUDIO_FILTER_PROPERTIES,
                         !audioFilterProp);
-    
+
     int n = GetMenuItemCount(_deviceMenu);
     for(int i = 0; i < n; i++) {
         mii.fMask = (MIIM_ID | MIIM_DATA);
@@ -699,7 +692,7 @@ void WebCamoo::UpdateOutputMenu()
 HRESULT WebCamoo::UpdatePlayState(FILTER_STATE state)
 {
     HRESULT hr = S_OK;
-    
+
     if (state != _state) {
         IMediaControl* pMC = NULL;
         hr = _pGraph->QueryInterface(IID_PPV_ARGS(&pMC));
@@ -721,7 +714,7 @@ HRESULT WebCamoo::UpdatePlayState(FILTER_STATE state)
             pMC->Release();
         }
     }
-    
+
     return hr;
 }
 
@@ -731,7 +724,7 @@ HRESULT WebCamoo::ClearVideoFilterGraph()
     log(L"ClearVideoFilterGraph");
 
     if (_pVideoWindow == NULL) return S_OK;
-    
+
     _pVideoWindow->put_Visible(OAFALSE);
     _pVideoWindow->Release();
     _pVideoWindow = NULL;
@@ -759,7 +752,7 @@ HRESULT WebCamoo::ClearAudioFilterGraph()
 // BuildVideoFilterGraph
 HRESULT WebCamoo::BuildVideoFilterGraph()
 {
-    HRESULT hr;
+    HRESULT hr = S_OK;
     log(L"BuildVideoFilterGraph");
 
     if (_pVideoWindow != NULL) return S_OK;
@@ -794,25 +787,25 @@ HRESULT WebCamoo::BuildVideoFilterGraph()
 
         // Obtain interfaces for Video Window.
         hr = _pVideoSink->QueryInterface(
-            IID_PPV_ARGS(&_pVideoWindow));
+            IID_IVideoWindow, (void**)&_pVideoWindow);
         if (FAILED(hr)) return hr;
-        
+
         // Set the video window to be a child of the main window.
         hr = _pVideoWindow->put_Owner((OAHWND)_hWnd);
         if (FAILED(hr)) return hr;
         hr = _pVideoWindow->put_WindowStyle(WS_CHILD | WS_CLIPCHILDREN);
         if (FAILED(hr)) return hr;
-    
+
         // Obtain the native video size.
         {
             IBasicVideo* pVideo = NULL;
-            hr = _pVideoSink->QueryInterface(IID_PPV_ARGS(&pVideo));
+            hr = _pVideoSink->QueryInterface(IID_IBasicVideo, (void**)&pVideo);
             if (FAILED(hr)) return hr;
             hr = pVideo->GetVideoSize(&_videoWidth, &_videoHeight);
             if (FAILED(hr)) return hr;
             pVideo->Release();
         }
-        
+
         // Use helper function to position video window in client rect
         // of main application window.
         ResizeVideoWindow();
@@ -820,14 +813,14 @@ HRESULT WebCamoo::BuildVideoFilterGraph()
         hr = _pVideoWindow->put_Visible(OATRUE);
         if (FAILED(hr)) return hr;
     }
-    
+
     return hr;
 }
 
 // BuildAudioFilterGraph
 HRESULT WebCamoo::BuildAudioFilterGraph()
 {
-    HRESULT hr;
+    HRESULT hr = S_OK;
     log(L"BuildVideoFilterGraph");
 
     if (_pAudioSrc != NULL &&
@@ -842,13 +835,13 @@ HRESULT WebCamoo::BuildAudioFilterGraph()
             _pAudioSrc, NULL, _pAudioSink);
         if (FAILED(hr)) return hr;
     }
-    
+
     return hr;
 }
 
 HRESULT WebCamoo::SelectVideo(IMoniker* pMoniker)
 {
-    HRESULT hr;
+    HRESULT hr = S_OK;
     log(L"SelectVideo: %p", pMoniker);
 
     if (_pVideoSrc != NULL) {
@@ -882,7 +875,7 @@ HRESULT WebCamoo::SelectAudio(IMoniker* pMoniker)
         _pAudioSrc->Release();
         _pAudioSrc = NULL;
     }
-    
+
     if (pMoniker != NULL) {
         hr = pMoniker->BindToObject(
             NULL, NULL, IID_PPV_ARGS(&_pAudioSrc));
@@ -894,7 +887,7 @@ HRESULT WebCamoo::SelectAudio(IMoniker* pMoniker)
         hr = S_OK;
         _pAudioMoniker = NULL;
     }
-    
+
     return S_OK;
 }
 
@@ -907,7 +900,7 @@ HRESULT WebCamoo::InitializeWindow(HWND hWnd)
     _deviceMenu = GetSubMenu(_hMenu, 1);
     UpdateDeviceMenuItems();
     UpdateOutputMenu();
-    
+
     // Register for device add/remove notifications
     DEV_BROADCAST_DEVICEINTERFACE dev = {0};
     dev.dbcc_size = sizeof(DEV_BROADCAST_DEVICEINTERFACE);
@@ -931,16 +924,16 @@ void WebCamoo::UninitializeWindow(void)
     SelectVideo(NULL);
     ClearAudioFilterGraph();
     SelectAudio(NULL);
-    
+
     // Release the video window.
     {
         IVideoWindow* pVW = NULL;
-        HRESULT hr = _pVideoSink->QueryInterface(IID_PPV_ARGS(&pVW));
+        HRESULT hr = _pVideoSink->QueryInterface(IID_IVideoWindow, (void**)&pVW);
         if (SUCCEEDED(hr)) {
             pVW->put_Owner(NULL);
         }
     }
-    
+
     // Stop receiving events.
     _pMediaEvent->SetNotifyWindow(0, WM_GRAPHNOTIFY, 0);
 
@@ -962,7 +955,7 @@ HRESULT WebCamoo::ResizeVideoWindow(void)
 {
     HRESULT hr;
     if (_videoWidth == 0 || _videoHeight == 0 || _pVideoWindow == NULL) return S_OK;
-        
+
     // Resize the video preview window to match owner window size
     RECT rc;
     GetClientRect(_hWnd, &rc);
@@ -1020,7 +1013,7 @@ HRESULT WebCamoo::HandleGraphEvent(void)
             SelectAudio(NULL);
             UpdateDeviceMenuChecks();
             break;
-            
+
         case EC_DEVICE_LOST:
             if (evParam2 == 0) {
                 IBaseFilter* pLost = NULL;
@@ -1051,7 +1044,7 @@ HRESULT WebCamoo::OpenVideoFilterProperties()
 {
     HRESULT hr;
     if (_pVideoSrc == NULL) return S_OK;
-    
+
     ISpecifyPropertyPages* pSpec = NULL;
     hr = _pVideoSrc->QueryInterface(IID_PPV_ARGS(&pSpec));
     if (SUCCEEDED(hr)) {
@@ -1071,7 +1064,7 @@ HRESULT WebCamoo::OpenVideoFilterProperties()
             SysFreeString(var.bstrVal);
         }
     }
-    
+
     return hr;
 }
 
@@ -1079,7 +1072,7 @@ HRESULT WebCamoo::OpenVideoPinProperties()
 {
     HRESULT hr;
     if (_pVideoSrc == NULL) return S_OK;
-    
+
     UpdatePlayState(State_Stopped);
     UpdateOutputMenu();
     ClearVideoFilterGraph();
@@ -1113,7 +1106,7 @@ HRESULT WebCamoo::OpenVideoPinProperties()
     BuildVideoFilterGraph();
     UpdatePlayState(State_Running);
     UpdateOutputMenu();
-    
+
     return S_OK;
 }
 
@@ -1121,7 +1114,7 @@ HRESULT WebCamoo::OpenAudioFilterProperties()
 {
     HRESULT hr;
     if (_pAudioSrc == NULL) return S_OK;
-    
+
     ISpecifyPropertyPages* pSpec = NULL;
     hr = _pAudioSrc->QueryInterface(IID_PPV_ARGS(&pSpec));
     if (SUCCEEDED(hr)) {
@@ -1141,7 +1134,7 @@ HRESULT WebCamoo::OpenAudioFilterProperties()
             SysFreeString(var.bstrVal);
         }
     }
-    
+
     return hr;
 }
 
@@ -1164,7 +1157,7 @@ void WebCamoo::DoCommand(UINT cmd)
         DialogBox(NULL, MAKEINTRESOURCE(IDD_ABOUT),
                   _hWnd, aboutDialogProc);
         break;
-        
+
     case IDM_TOGGLE_MENUBAR:
         if (GetMenu(_hWnd) == NULL) {
             SetMenu(_hWnd, _hMenu);
@@ -1172,7 +1165,7 @@ void WebCamoo::DoCommand(UINT cmd)
             SetMenu(_hWnd, NULL);
         }
         break;
-        
+
     case IDM_KEEP_ASPECT_RATIO:
         toggleMenuItemChecked(hMenu, cmd);
         ResizeVideoWindow();
@@ -1244,15 +1237,15 @@ void WebCamoo::DoCommand(UINT cmd)
     case IDM_OPEN_VIDEO_FILTER_PROPERTIES:
         OpenVideoFilterProperties();
         break;
-        
+
     case IDM_OPEN_VIDEO_PIN_PROPERTIES:
         OpenVideoPinProperties();
         break;
-        
+
     case IDM_OPEN_AUDIO_FILTER_PROPERTIES:
         OpenAudioFilterProperties();
         break;
-        
+
     case IDM_DEVICE_VIDEO_NONE:
         UpdatePlayState(State_Stopped);
         ClearVideoFilterGraph();
@@ -1309,16 +1302,16 @@ void WebCamoo::DoCommand(UINT cmd)
 void WebCamoo::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     if (hWnd != _hWnd) return;
-    
+
     switch (uMsg) {
     case WM_COMMAND:
         DoCommand(LOWORD(wParam));
         break;
-        
+
     case WM_SIZE:
         ResizeVideoWindow();
         break;
-        
+
     case WM_WINDOWPOSCHANGED:
         if (_pVideoWindow != NULL) {
             if (!IsWindowVisible(_hWnd) || IsIconic(_hWnd)) {
@@ -1330,7 +1323,7 @@ void WebCamoo::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
         }
         break;
-        
+
     case WM_GRAPHNOTIFY:
         HandleGraphEvent();
         break;
@@ -1338,7 +1331,7 @@ void WebCamoo::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_INITMENU:
         UpdateDeviceMenuChecks();
         break;
-        
+
     case WM_DEVICECHANGE:
         if (wParam == DBT_DEVICEARRIVAL ||
             wParam == DBT_DEVICEREMOVECOMPLETE) {
@@ -1352,7 +1345,7 @@ void WebCamoo::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
         }
         break;
-        
+
     case WM_CLOSE:
         UninitializeWindow();
         DestroyWindow(_hWnd);
@@ -1397,7 +1390,7 @@ static LRESULT CALLBACK WndMainProc(
     if (self != NULL) {
         self->HandleMessage(hWnd, uMsg, wParam, lParam);
     }
-    
+
     return DefWindowProc(hWnd, uMsg, wParam, lParam);
 }
 
@@ -1439,8 +1432,9 @@ int WebCamooMain(
 
     // Create the main window.
     // The WS_CLIPCHILDREN style is required.
+    ULONG klass = (ULONG)atom;
     HWND hWnd = CreateWindow(
-        (LPCTSTR)atom,
+        (LPCTSTR)klass,
         APPLICATION_NAME,
         WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         CW_USEDEFAULT, CW_USEDEFAULT,
@@ -1481,8 +1475,8 @@ int WebCamooMain(
 // WinMain and wmain
 #ifdef WINDOWS
 int PASCAL WinMain(
-    HINSTANCE hInstance, 
-    HINSTANCE hPrevInstance, 
+    HINSTANCE hInstance,
+    HINSTANCE hPrevInstance,
     LPSTR lpCmdLine,
     int nCmdShow)
 {
